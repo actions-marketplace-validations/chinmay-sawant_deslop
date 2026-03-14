@@ -1,0 +1,234 @@
+# goslop Implementation Guide
+
+## Overview
+
+goslop is structured as a multi-stage Rust analysis pipeline for Go repositories. The current implementation focuses on fast full-repository ingestion, lightweight structural fingerprints, a repository-local symbol index, first-pass heuristic findings, and repeatable benchmark measurements.
+
+The code is intentionally split so later phases such as copypasta detection, control-flow analysis, taint tracking, and auto-fix generation can consume stable intermediate results instead of reparsing source files or embedding analysis logic inside the CLI.
+
+## Current architecture
+
+### CLI layer
+
+`src/main.rs` exposes two subcommands:
+
+- `scan <path>` runs the analyzer and prints either text or JSON
+- `bench <path>` runs the pipeline repeatedly and reports timing statistics
+
+Both commands accept `--no-ignore`, and both support `--json` for structured output.
+
+### Repository discovery
+
+`src/walker.rs` uses the `ignore` crate to walk the target directory. The current policy:
+
+- respects `.gitignore` by default
+- works even when the scanned path is not itself a Git repository
+- skips non-Go files
+- skips `vendor/` paths
+
+This stage is responsible only for file selection. It does not parse or classify file contents.
+
+### Parse stage
+
+`src/parser.rs` wraps `tree-sitter` and `tree-sitter-go`. For each Go file, it extracts:
+
+- package name
+- imports and effective aliases
+- declared symbols such as functions, methods, structs, interfaces, and types
+- per-function call sites
+- per-function fingerprints
+
+Parsing remains syntax-tolerant. Files with syntax errors still participate in the report when tree-sitter can recover enough structure.
+
+### Fingerprint stage
+
+`src/fingerprint.rs` computes lightweight function-level signals:
+
+- line span
+- comment and code line counts
+- comment-to-code ratio
+- a simple control-structure complexity proxy
+- a symmetry score derived from repeated sibling statement kinds
+- boilerplate `if err != nil { return err }` suppression
+- signature-level weak-typing markers such as `any` and `interface{}`
+- type assertion count
+- call count
+
+These fingerprints are intended as low-cost primitives for later heuristic and ranking layers.
+
+### Symbol index
+
+`src/index.rs` builds a repository-local package index from parsed files. The first version tracks:
+
+- package-level functions
+- methods grouped by receiver type
+- declared symbols for counting and future evidence output
+- per-package import counts
+
+This index is deliberately lightweight. It is useful for local-context checks, but it is not an authoritative substitute for `go/types`.
+
+### Heuristic layer
+
+`src/heuristics.rs` currently implements three rule families:
+
+1. `generic_name`
+   Flags functions whose names are unusually generic, but only when the function also lacks stronger contextual signals such as specific typing or commentary.
+
+2. `weak_typing`
+   Flags functions whose signatures use `any` or `interface{}`. The severity is reduced when the function includes type assertions that indicate at least some local narrowing.
+
+3. `hallucinated_import_call` and `hallucinated_local_call`
+   Uses the local package index to flag calls that appear to reference symbols not present in the scanned repository context. This is intentionally local-only and should be described as a heuristic, not as proof of broken code.
+
+### Benchmark layer
+
+`src/benchmark.rs` runs repeated full scans and computes stage statistics:
+
+- minimum
+- maximum
+- mean
+- median
+
+The benchmark command is meant to be run against a real local Go repository so the sub-2s target can be measured on realistic input rather than fixture-scale samples.
+
+## Output model
+
+The scan report currently includes:
+
+- root path
+- discovered and analyzed file counts
+- function count
+- per-file function fingerprints
+- structured findings
+- index summary counts
+- parse failures
+- per-stage timing breakdown
+
+The benchmark report includes:
+
+- target path
+- warmup count
+- repeat count
+- final file, function, and finding counts
+- timing statistics for discover, parse, index, heuristics, and total stages
+- raw per-run measurements
+
+## Commands
+
+### Scan a repository
+
+```bash
+cargo run -- scan /absolute/path/to/go-repo
+```
+
+### Scan with JSON output
+
+```bash
+cargo run -- scan --json /absolute/path/to/go-repo
+```
+
+### Ignore `.gitignore` rules
+
+```bash
+cargo run -- scan --no-ignore /absolute/path/to/go-repo
+```
+
+### Benchmark a repository
+
+```bash
+cargo run -- bench /absolute/path/to/go-repo
+```
+
+### Benchmark with explicit run counts
+
+```bash
+cargo run -- bench --warmups 2 --repeats 5 /absolute/path/to/go-repo
+```
+
+### Benchmark with JSON output
+
+```bash
+cargo run -- bench --json /absolute/path/to/go-repo
+```
+
+## Detailed plan for the next extension phase
+
+### 1. Strengthen the heuristic layer
+
+The current heuristic layer is intentionally shallow and explainable. The next pass should preserve that property while making the signals more context-aware.
+
+Work items:
+
+- add a scored rule result model so individual findings can contribute to an aggregate slop score without hiding the underlying reasons
+- separate generic-name token matching from evidence thresholds so false-positive tuning is easier
+- capture argument shapes and local declarations from the parser so weak typing can distinguish boundary interfaces from vague internal plumbing
+- add negative fixtures for common legitimate names such as server handlers, formatters, and adapters with strong concrete typing
+- keep standard boilerplate suppression centralized so future rules do not over-penalize canonical Go error handling
+
+### 2. Build a stronger package and symbol index
+
+The current index is keyed primarily by package name and receiver type. That is enough for early local-context checks, but it needs more structure before hallucination detection can become reliable.
+
+Work items:
+
+- group packages by both package name and directory to avoid conflating unrelated packages with identical names
+- record import aliases, import paths, and directory origins so selector-call resolution can be traced more honestly
+- index exported and unexported symbols separately so findings can express whether a missing symbol would be visible cross-package even if it exists elsewhere
+- capture method sets by receiver type and normalize pointer/value receivers consistently
+- add a cheap unresolved-reference staging layer so suspicious call sites can be recorded first and classified second
+
+### 3. Expand the hallucination check using local project context
+
+The next hallucination pass should remain explicit about being local and syntactic, not full semantic truth.
+
+Work items:
+
+- verify unresolved same-package direct calls against package-plus-directory symbol tables
+- verify selector calls against locally indexed imported packages when the import path can be mapped back into the scanned repository
+- add better evidence payloads that include the import alias, candidate package, and missing symbol name
+- distinguish hard local misses from ambiguous cases where multiple packages share the same name
+- defer `go.mod`, `go list`, and `go/types` integration until the local index behavior and performance are stable
+
+### 4. Add a more rigorous benchmark baseline
+
+The current benchmark command reports repeated end-to-end timings. The next step is to make those numbers useful for regression tracking.
+
+Work items:
+
+- add optional CSV or line-delimited JSON output for benchmark automation
+- separate cold-cache and warm-cache conventions explicitly in the benchmark docs and command help
+- record repository scale metadata such as discovered files, analyzed files, function count, and findings count for each run
+- benchmark at least one real medium-size Go repository and capture the baseline in documentation or repository memory
+- add a simple regression threshold check in CI later, but only after the benchmark output is stable and noise is understood
+
+### 5. Keep documentation aligned with the executable surface
+
+The README should stay short and operational. The guide should remain the authoritative place for architecture, heuristics, limitations, and roadmap detail.
+
+Work items:
+
+- update the guide whenever the report schema changes materially
+- document known false-positive cases for each heuristic family
+- add a benchmark interpretation section once real baseline numbers exist
+- add a local-context versus authoritative-type-checking comparison section before introducing `go/types`
+
+## Limitations
+
+- The symbol index is local and tree-sitter-derived. It cannot replace authoritative Go type checking.
+- Import resolution is currently alias- and package-name-based. It does not resolve module paths through `go.mod`.
+- Hallucination findings are conservative heuristics for repository-local context, not a proof that a program fails to compile.
+- The benchmark command measures the current Rust pipeline only. It does not run `go test`, `go vet`, or `go/types`.
+- The weak-typing rule currently focuses on signature-level vagueness rather than full dataflow-level type misuse.
+
+## Testing strategy
+
+The repository uses small fixture-driven tests under `tests/fixtures/` and integration coverage in `tests/integration_scan.rs`. The current suite verifies:
+
+- `.gitignore` handling
+- generated-file filtering
+- syntax-error tolerance
+- heuristic triggering for generic naming and weak typing
+- local import-call hallucination detection
+- benchmark command behavior on a temporary Go workspace
+
+As the heuristic set expands, each new rule should land with at least one positive fixture and one negative fixture to keep false-positive drift visible.
