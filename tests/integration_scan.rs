@@ -109,6 +109,41 @@ fn flags_hallucinated_import_calls() {
 }
 
 #[test]
+fn does_not_flag_package_level_function_alias_vars_as_hallucinated() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "pdf/generator.go",
+        r#"package pdf
+
+import font "example.com/font"
+
+var (
+    IsCustomFont = font.IsCustomFont
+)
+
+func collectAllStandardFontsInTemplate() {
+    IsCustomFont("Helvetica")
+}
+"#,
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(!report.findings.iter().any(|finding| {
+        finding.rule_id == "hallucinated_local_call"
+            && finding.function_name.as_deref() == Some("collectAllStandardFontsInTemplate")
+            && finding.start_line == 9
+    }));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
 fn benchmarks_a_real_scan_path() {
     let temp_dir = create_temp_workspace();
     write_fixture(&temp_dir, "main.go", include_str!("./fixtures/simple.go"));

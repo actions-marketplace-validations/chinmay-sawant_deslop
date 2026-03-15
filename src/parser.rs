@@ -226,6 +226,9 @@ fn visit_for_symbols(node: Node<'_>, source: &str, symbols: &mut Vec<DeclaredSym
                 symbols.push(symbol);
             }
         }
+        "var_spec" => {
+            symbols.extend(parse_package_var_symbols(node, source));
+        }
         _ => {}
     }
 
@@ -233,6 +236,154 @@ fn visit_for_symbols(node: Node<'_>, source: &str, symbols: &mut Vec<DeclaredSym
     for child in node.named_children(&mut cursor) {
         visit_for_symbols(child, source, symbols);
     }
+}
+
+fn parse_package_var_symbols(node: Node<'_>, source: &str) -> Vec<DeclaredSymbol> {
+    if !is_package_scope(node) {
+        return Vec::new();
+    }
+
+    let Some(name_node) = find_var_name_node(node) else {
+        return Vec::new();
+    };
+    let names = collect_identifiers(name_node, source);
+    if names.is_empty() {
+        return Vec::new();
+    }
+
+    let is_function_typed = node
+        .child_by_field_name("type")
+        .is_some_and(|type_node| type_node.kind() == "function_type");
+
+    if is_function_typed {
+        return names
+            .into_iter()
+            .map(|(name, line)| DeclaredSymbol {
+                name,
+                kind: SymbolKind::Function,
+                receiver_type: None,
+                line,
+            })
+            .collect();
+    }
+
+    let Some(value_node) = find_var_value_node(node) else {
+        return Vec::new();
+    };
+    let values = collect_expression_nodes(value_node);
+
+    names
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, (name, line))| {
+            let value = values.get(index)?;
+            is_callable_var_value(*value).then_some(DeclaredSymbol {
+                name,
+                kind: SymbolKind::Function,
+                receiver_type: None,
+                line,
+            })
+        })
+        .collect()
+}
+
+fn is_package_scope(node: Node<'_>) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "function_declaration" | "method_declaration" | "func_literal" => return false,
+            "source_file" => return true,
+            _ => current = parent.parent(),
+        }
+    }
+
+    false
+}
+
+fn find_var_name_node(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("name")
+        .or_else(|| first_named_child_of_kind(node, "identifier_list"))
+        .or_else(|| first_named_child_of_kind(node, "identifier"))
+}
+
+fn find_var_value_node(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("value")
+        .or_else(|| first_named_child_of_kind(node, "expression_list"))
+        .or_else(|| {
+            let mut cursor = node.walk();
+            node.named_children(&mut cursor)
+                .find(|child| is_expression_node_kind(child.kind()))
+        })
+}
+
+fn first_named_child_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
+}
+
+fn collect_identifiers(node: Node<'_>, source: &str) -> Vec<(String, usize)> {
+    if node.kind() == "identifier" {
+        return source
+            .get(node.byte_range())
+            .map(|name| vec![(name.to_string(), node.start_position().row + 1)])
+            .unwrap_or_default();
+    }
+
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|child| child.kind() == "identifier")
+        .filter_map(|child| {
+            source
+                .get(child.byte_range())
+                .map(|name| (name.to_string(), child.start_position().row + 1))
+        })
+        .collect()
+}
+
+fn collect_expression_nodes(node: Node<'_>) -> Vec<Node<'_>> {
+    if node.kind() != "expression_list" {
+        return vec![node];
+    }
+
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).collect()
+}
+
+fn is_callable_var_value(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "identifier"
+            | "selector_expression"
+            | "func_literal"
+            | "parenthesized_expression"
+            | "index_expression"
+            | "slice_expression"
+    )
+}
+
+fn is_expression_node_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "identifier"
+            | "selector_expression"
+            | "func_literal"
+            | "parenthesized_expression"
+            | "call_expression"
+            | "unary_expression"
+            | "binary_expression"
+            | "index_expression"
+            | "slice_expression"
+            | "type_assertion_expression"
+            | "composite_literal"
+            | "literal_value"
+            | "int_literal"
+            | "float_literal"
+            | "imaginary_literal"
+            | "rune_literal"
+            | "raw_string_literal"
+            | "interpreted_string_literal"
+    )
 }
 
 fn parse_function_symbol(node: Node<'_>, source: &str) -> Option<DeclaredSymbol> {
@@ -320,10 +471,35 @@ fn count_descendants(node: Node<'_>, kind: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::package_alias_from_import_path;
+    use super::{package_alias_from_import_path, parse_go_file};
+    use crate::model::SymbolKind;
+    use std::path::Path;
 
     #[test]
     fn derives_import_alias_from_path() {
         assert_eq!(package_alias_from_import_path("github.com/acme/utils"), "utils");
+    }
+
+    #[test]
+    fn collects_package_level_function_alias_vars_as_symbols() {
+        let source = r#"package pdf
+
+import font "example.com/font"
+
+var (
+    IsCustomFont = font.IsCustomFont
+    PlainValue = 42
+)
+
+func collectAllStandardFontsInTemplate() {
+    IsCustomFont("Helvetica")
+}
+"#;
+
+        let parsed = parse_go_file(Path::new("sample.go"), source).expect("parse should work");
+        assert!(parsed.symbols.iter().any(|symbol| {
+            symbol.name == "IsCustomFont" && matches!(symbol.kind, SymbolKind::Function)
+        }));
+        assert!(!parsed.symbols.iter().any(|symbol| symbol.name == "PlainValue"));
     }
 }
