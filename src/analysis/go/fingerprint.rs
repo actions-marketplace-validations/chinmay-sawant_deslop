@@ -2,7 +2,7 @@ use tree_sitter::Node;
 
 use crate::model::FunctionFingerprint;
 
-pub fn build_function_fingerprint(
+pub(super) fn build_function_fingerprint(
     node: Node<'_>,
     source: &str,
     receiver_type: Option<String>,
