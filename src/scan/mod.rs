@@ -1,14 +1,16 @@
+mod walker;
+
 use std::fs;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 
+use crate::analysis::{ParsedFile, analyzer_for_path};
 use crate::heuristics::evaluate_findings;
 use crate::index::build_repository_index;
 use crate::model::{ParseFailure, ScanOptions, ScanReport, TimingBreakdown};
-use crate::parser::{parse_go_file, ParsedFile};
-use crate::walker::discover_go_files;
+use crate::scan::walker::discover_go_files;
 
 pub fn scan_repository(options: &ScanOptions) -> Result<ScanReport> {
     let total_start = Instant::now();
@@ -91,7 +93,14 @@ fn analyze_file(path: &std::path::Path) -> FileOutcome {
                 return FileOutcome::Generated(path.to_path_buf());
             }
 
-            match parse_go_file(path, &source) {
+            let Some(analyzer) = analyzer_for_path(path) else {
+                return FileOutcome::Failed(ParseFailure {
+                    path: path.to_path_buf(),
+                    message: format!("no analyzer registered for {}", path.display()),
+                });
+            };
+
+            match analyzer.parse_file(path, &source) {
                 Ok(file) => FileOutcome::Parsed(file),
                 Err(error) => FileOutcome::Failed(ParseFailure {
                     path: path.to_path_buf(),
