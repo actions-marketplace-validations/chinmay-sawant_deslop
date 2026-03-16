@@ -22,10 +22,19 @@ Run a scan against a target path:
 cargo run -- scan /path/to/go-repo
 ```
 
+By default, scan output lists each discovered function with its line range only.
+
 Run the same scan with JSON output:
 
 ```bash
 cargo run -- scan --json /path/to/go-repo
+```
+
+Show full per-function fingerprint details in either text or JSON output:
+
+```bash
+cargo run -- scan --details /path/to/go-repo
+cargo run -- scan --json --details /path/to/go-repo
 ```
 
 Run a scan without `.gitignore` filtering:

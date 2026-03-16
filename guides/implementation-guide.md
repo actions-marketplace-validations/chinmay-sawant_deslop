@@ -16,6 +16,7 @@ The code is intentionally split so later phases such as copypasta detection, con
 - `bench <path>` runs the pipeline repeatedly and reports timing statistics
 
 Both commands accept `--no-ignore`, and both support `--json` for structured output.
+The `scan` command defaults to a compact per-function summary and accepts `--details` to include full fingerprint metrics.
 
 ### Repository discovery
 
@@ -98,7 +99,7 @@ The scan report currently includes:
 - root path
 - discovered and analyzed file counts
 - function count
-- per-file function fingerprints
+- per-file function summaries by default, or full function fingerprints with `--details`
 - structured findings
 - index summary counts
 - parse failures
@@ -121,10 +122,19 @@ The benchmark report includes:
 cargo run -- scan /absolute/path/to/go-repo
 ```
 
+This default output lists only function names and line ranges for each file.
+
 ### Scan with JSON output
 
 ```bash
 cargo run -- scan --json /absolute/path/to/go-repo
+```
+
+### Include full per-function details
+
+```bash
+cargo run -- scan --details /absolute/path/to/go-repo
+cargo run -- scan --json --details /absolute/path/to/go-repo
 ```
 
 ### Ignore `.gitignore` rules
