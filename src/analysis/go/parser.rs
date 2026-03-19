@@ -6,7 +6,8 @@ use tree_sitter::{Node, Parser};
 
 use crate::analysis::go::fingerprint::build_function_fingerprint;
 use crate::analysis::{
-    CallSite, DeclaredSymbol, FormattedErrorCall, ImportSpec, ParsedFile, ParsedFunction,
+    CallSite, ContextFactoryCall, DbQueryCall, DeclaredSymbol, FormattedErrorCall, ImportSpec,
+    ParsedFile, ParsedFunction,
 };
 use crate::model::SymbolKind;
 
@@ -81,9 +82,18 @@ fn parse_function_node(
     let dropped_error_lines = collect_dropped_error_lines(body_node, source);
     let panic_on_error_lines = collect_panic_on_error_lines(body_node, source);
     let errorf_calls = collect_errorf_calls(body_node, source);
+    let context_factory_calls = collect_context_factory_calls(body_node, source, imports);
     let goroutine_launch_lines = collect_goroutine_launch_lines(body_node);
+    let goroutine_without_shutdown_lines = collect_goroutine_without_shutdown_lines(body_node, source);
     let sleep_in_loop_lines = collect_sleep_in_loop_lines(body_node, source, imports);
+    let busy_wait_lines = collect_busy_wait_lines(body_node, source);
+    let mutex_lock_in_loop_lines = collect_mutex_lock_in_loop_lines(body_node, source);
+    let allocation_in_loop_lines = collect_allocation_in_loop_lines(body_node, source, imports);
+    let fmt_in_loop_lines = collect_fmt_in_loop_lines(body_node, source, imports);
+    let reflection_in_loop_lines = collect_reflection_in_loop_lines(body_node, source, imports);
     let string_concat_in_loop_lines = collect_string_concat_in_loop_lines(body_node, source);
+    let json_marshal_in_loop_lines = collect_json_marshal_in_loop_lines(body_node, source, imports);
+    let db_query_calls = collect_db_query_calls(body_node, source);
     let receiver_type = node
         .child_by_field_name("receiver")
         .and_then(|receiver| extract_receiver_type(receiver, source));
@@ -103,9 +113,18 @@ fn parse_function_node(
         dropped_error_lines,
         panic_on_error_lines,
         errorf_calls,
+        context_factory_calls,
         goroutine_launch_lines,
+        goroutine_without_shutdown_lines,
         sleep_in_loop_lines,
+        busy_wait_lines,
+        mutex_lock_in_loop_lines,
+        allocation_in_loop_lines,
+        fmt_in_loop_lines,
+        reflection_in_loop_lines,
         string_concat_in_loop_lines,
+        json_marshal_in_loop_lines,
+        db_query_calls,
     })
 }
 
@@ -510,10 +529,134 @@ fn is_time_sleep_call(target: &str, imports: &[ImportSpec]) -> bool {
         .any(|import| target == format!("{}.Sleep", import.alias))
 }
 
+fn collect_busy_wait_lines(body_node: Node<'_>, source: &str) -> Vec<usize> {
+    let mut lines = Vec::new();
+    visit_for_busy_wait(body_node, source, false, &mut lines);
+    lines
+}
+
+fn visit_for_busy_wait(node: Node<'_>, source: &str, inside_loop: bool, lines: &mut Vec<usize>) {
+    let next_inside_loop = inside_loop || node.kind() == "for_statement";
+
+    if next_inside_loop
+        && node.kind() == "select_statement"
+        && source
+            .get(node.byte_range())
+            .is_some_and(|text| text.contains("default:"))
+    {
+        lines.push(node.start_position().row + 1);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_busy_wait(child, source, next_inside_loop, lines);
+    }
+}
+
+fn collect_context_factory_calls(
+    body_node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+) -> Vec<ContextFactoryCall> {
+    let mut calls = Vec::new();
+    visit_for_context_factory_calls(body_node, source, imports, &mut calls);
+    calls
+}
+
+fn visit_for_context_factory_calls(
+    node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+    calls: &mut Vec<ContextFactoryCall>,
+) {
+    if matches!(node.kind(), "assignment_statement" | "short_var_declaration" | "var_spec") {
+        if let Some(call) = parse_context_factory_call(node, source, imports) {
+            calls.push(call);
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_context_factory_calls(child, source, imports, calls);
+    }
+}
+
+fn parse_context_factory_call(
+    node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+) -> Option<ContextFactoryCall> {
+    let text = source.get(node.byte_range())?;
+    let (left, right) = split_assignment(text)?;
+    let factory_name = context_factory_name(right, imports)?;
+    let cancel_name = extract_cancel_name(left)?;
+
+    Some(ContextFactoryCall {
+        line: node.start_position().row + 1,
+        cancel_name,
+        factory_name,
+    })
+}
+
+fn context_factory_name(text: &str, imports: &[ImportSpec]) -> Option<String> {
+    let compact = text.split_whitespace().collect::<String>();
+
+    for import in imports.iter().filter(|import| import.path == "context") {
+        for factory_name in ["WithCancel", "WithTimeout", "WithDeadline"] {
+            let prefix = format!("{}.{}(", import.alias, factory_name);
+            if compact.starts_with(&prefix) {
+                return Some(factory_name.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_cancel_name(left: &str) -> Option<String> {
+    let candidate = left.rsplit(',').next()?.trim();
+    let cancel_name = candidate.split_whitespace().last()?;
+    if cancel_name == "_" || !is_identifier_name(cancel_name) {
+        return None;
+    }
+
+    Some(cancel_name.to_string())
+}
+
 fn collect_goroutine_launch_lines(body_node: Node<'_>) -> Vec<usize> {
     let mut lines = Vec::new();
     visit_for_goroutine_launches(body_node, &mut lines);
     lines
+}
+
+fn collect_goroutine_without_shutdown_lines(body_node: Node<'_>, source: &str) -> Vec<usize> {
+    let mut lines = Vec::new();
+    visit_for_goroutines_without_shutdown(body_node, source, &mut lines);
+    lines
+}
+
+fn visit_for_goroutines_without_shutdown(node: Node<'_>, source: &str, lines: &mut Vec<usize>) {
+    if node.kind() == "go_statement"
+        && source.get(node.byte_range()).is_some_and(|text| {
+            let compact = text.split_whitespace().collect::<String>();
+            let has_func_literal = compact.contains("gofunc(") || compact.contains("gofunc()");
+            let has_loop = count_descendants(node, "for_statement") > 0;
+            let has_shutdown_signal = compact.contains("ctx.Done()")
+                || compact.contains("<-done")
+                || compact.contains("<-shutdown")
+                || compact.contains("case<-done")
+                || compact.contains("case<-shutdown")
+                || compact.contains("case<-ctx.Done()");
+            has_func_literal && has_loop && !has_shutdown_signal
+        })
+    {
+        lines.push(node.start_position().row + 1);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_goroutines_without_shutdown(child, source, lines);
+    }
 }
 
 fn visit_for_goroutine_launches(node: Node<'_>, lines: &mut Vec<usize>) {
@@ -532,6 +675,273 @@ fn collect_string_concat_in_loop_lines(body_node: Node<'_>, source: &str) -> Vec
     let mut lines = Vec::new();
     visit_for_string_concat_in_loop(body_node, source, &string_variables, false, &mut lines);
     lines
+}
+
+fn collect_mutex_lock_in_loop_lines(body_node: Node<'_>, source: &str) -> Vec<usize> {
+    let mut lines = Vec::new();
+    visit_for_mutex_lock_in_loop(body_node, source, false, &mut lines);
+    lines
+}
+
+fn visit_for_mutex_lock_in_loop(
+    node: Node<'_>,
+    source: &str,
+    inside_loop: bool,
+    lines: &mut Vec<usize>,
+) {
+    let next_inside_loop = inside_loop || node.kind() == "for_statement";
+
+    if next_inside_loop && node.kind() == "call_expression" {
+        let function_node = node.child_by_field_name("function");
+        if let Some(function_node) = function_node {
+            let target = source.get(function_node.byte_range()).unwrap_or("").trim();
+            if is_mutex_lock_call(target) {
+                lines.push(node.start_position().row + 1);
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_mutex_lock_in_loop(child, source, next_inside_loop, lines);
+    }
+}
+
+fn is_mutex_lock_call(target: &str) -> bool {
+    target.ends_with(".Lock") || target.ends_with(".RLock")
+}
+
+fn collect_allocation_in_loop_lines(
+    body_node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+) -> Vec<usize> {
+    let mut lines = Vec::new();
+    visit_for_allocation_in_loop(body_node, source, imports, false, &mut lines);
+    lines
+}
+
+fn visit_for_allocation_in_loop(
+    node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+    inside_loop: bool,
+    lines: &mut Vec<usize>,
+) {
+    let next_inside_loop = inside_loop || node.kind() == "for_statement";
+
+    if next_inside_loop && node.kind() == "call_expression" {
+        let function_node = node.child_by_field_name("function");
+        if let Some(function_node) = function_node {
+            let target = source.get(function_node.byte_range()).unwrap_or("").trim();
+            if is_allocation_call(target, imports) {
+                lines.push(node.start_position().row + 1);
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_allocation_in_loop(child, source, imports, next_inside_loop, lines);
+    }
+}
+
+fn is_allocation_call(target: &str, imports: &[ImportSpec]) -> bool {
+    if matches!(target, "make" | "new") {
+        return true;
+    }
+
+    imports.iter().any(|import| {
+        matches!(import.path.as_str(), "bytes")
+            && (target == format!("{}.NewBuffer", import.alias)
+                || target == format!("{}.NewBufferString", import.alias))
+    })
+}
+
+fn collect_fmt_in_loop_lines(body_node: Node<'_>, source: &str, imports: &[ImportSpec]) -> Vec<usize> {
+    let mut lines = Vec::new();
+    visit_for_fmt_in_loop(body_node, source, imports, false, &mut lines);
+    lines
+}
+
+fn visit_for_fmt_in_loop(
+    node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+    inside_loop: bool,
+    lines: &mut Vec<usize>,
+) {
+    let next_inside_loop = inside_loop || node.kind() == "for_statement";
+
+    if next_inside_loop && node.kind() == "call_expression" {
+        let function_node = node.child_by_field_name("function");
+        if let Some(function_node) = function_node {
+            let target = source.get(function_node.byte_range()).unwrap_or("").trim();
+            if is_fmt_hot_path_call(target, imports) {
+                lines.push(node.start_position().row + 1);
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_fmt_in_loop(child, source, imports, next_inside_loop, lines);
+    }
+}
+
+fn is_fmt_hot_path_call(target: &str, imports: &[ImportSpec]) -> bool {
+    imports.iter().any(|import| {
+        import.path == "fmt"
+            && ["Sprintf", "Sprint", "Sprintln", "Fprintf", "Fprint", "Fprintln"]
+                .iter()
+                .any(|name| target == format!("{}.{}", import.alias, name))
+    })
+}
+
+fn collect_reflection_in_loop_lines(
+    body_node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+) -> Vec<usize> {
+    let mut lines = Vec::new();
+    visit_for_reflection_in_loop(body_node, source, imports, false, &mut lines);
+    lines
+}
+
+fn visit_for_reflection_in_loop(
+    node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+    inside_loop: bool,
+    lines: &mut Vec<usize>,
+) {
+    let next_inside_loop = inside_loop || node.kind() == "for_statement";
+
+    if next_inside_loop && node.kind() == "call_expression" {
+        let function_node = node.child_by_field_name("function");
+        if let Some(function_node) = function_node {
+            let target = source.get(function_node.byte_range()).unwrap_or("").trim();
+            if is_reflection_call(target, imports) {
+                lines.push(node.start_position().row + 1);
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_reflection_in_loop(child, source, imports, next_inside_loop, lines);
+    }
+}
+
+fn is_reflection_call(target: &str, imports: &[ImportSpec]) -> bool {
+    imports
+        .iter()
+        .filter(|import| import.path == "reflect")
+        .any(|import| target.starts_with(&format!("{}.", import.alias)))
+}
+
+fn collect_json_marshal_in_loop_lines(
+    body_node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+) -> Vec<usize> {
+    let mut lines = Vec::new();
+    visit_for_json_marshal_in_loop(body_node, source, imports, false, &mut lines);
+    lines
+}
+
+fn visit_for_json_marshal_in_loop(
+    node: Node<'_>,
+    source: &str,
+    imports: &[ImportSpec],
+    inside_loop: bool,
+    lines: &mut Vec<usize>,
+) {
+    let next_inside_loop = inside_loop || node.kind() == "for_statement";
+
+    if next_inside_loop && node.kind() == "call_expression" {
+        let function_node = node.child_by_field_name("function");
+        if let Some(function_node) = function_node {
+            let target = source.get(function_node.byte_range()).unwrap_or("").trim();
+            if is_json_marshal_call(target, imports) {
+                lines.push(node.start_position().row + 1);
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_json_marshal_in_loop(child, source, imports, next_inside_loop, lines);
+    }
+}
+
+fn is_json_marshal_call(target: &str, imports: &[ImportSpec]) -> bool {
+    imports
+        .iter()
+        .filter(|import| import.path == "encoding/json")
+        .any(|import| {
+            target == format!("{}.Marshal", import.alias)
+                || target == format!("{}.MarshalIndent", import.alias)
+        })
+}
+
+fn collect_db_query_calls(body_node: Node<'_>, source: &str) -> Vec<DbQueryCall> {
+    let mut calls = Vec::new();
+    visit_for_db_query_calls(body_node, source, false, &mut calls);
+    calls
+}
+
+fn visit_for_db_query_calls(
+    node: Node<'_>,
+    source: &str,
+    inside_loop: bool,
+    calls: &mut Vec<DbQueryCall>,
+) {
+    let next_inside_loop = inside_loop || node.kind() == "for_statement";
+
+    if node.kind() == "call_expression" {
+        let function_node = node.child_by_field_name("function");
+        let arguments_node = node.child_by_field_name("arguments");
+
+        if let Some(function_node) = function_node {
+            if let Some((receiver, name)) = extract_call_target(function_node, source) {
+                if is_database_query_method(&name) {
+                    let query_text = arguments_node.and_then(|arguments| first_string_literal(arguments, source));
+                    calls.push(DbQueryCall {
+                        line: node.start_position().row + 1,
+                        receiver,
+                        method_name: name,
+                        query_text,
+                        in_loop: next_inside_loop,
+                    });
+                }
+            }
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_for_db_query_calls(child, source, next_inside_loop, calls);
+    }
+}
+
+fn is_database_query_method(name: &str) -> bool {
+    matches!(
+        name,
+        "Query"
+            | "QueryContext"
+            | "QueryRow"
+            | "QueryRowContext"
+            | "Exec"
+            | "ExecContext"
+            | "Get"
+            | "Select"
+            | "Raw"
+            | "First"
+            | "Find"
+            | "Take"
+            | "Preload"
+    )
 }
 
 fn collect_explicit_string_variables(body_node: Node<'_>, source: &str) -> BTreeSet<String> {
@@ -930,6 +1340,108 @@ func Poll(ctx context.Context) {
 
         assert!(poll.has_context_parameter);
         assert_eq!(poll.sleep_in_loop_lines, vec![10]);
+    }
+
+    #[test]
+    fn collects_context_factory_busy_wait_and_json_signals() {
+        let source = r#"package sample
+
+import (
+    "context"
+    "encoding/json"
+    "time"
+)
+
+func Run(parent context.Context, items []string) {
+    ctx, cancel := context.WithTimeout(parent, time.Second)
+    _ = ctx
+
+    for {
+        select {
+        default:
+            return
+        }
+    }
+
+    for _, item := range items {
+        _, _ = json.Marshal(item)
+    }
+
+    _ = cancel
+}
+"#;
+
+        let parsed = parse_file(Path::new("sample.go"), source).expect("parse should work");
+        let run = parsed
+            .functions
+            .iter()
+            .find(|function| function.fingerprint.name == "Run")
+            .expect("Run should be parsed");
+
+        assert_eq!(run.context_factory_calls.len(), 1);
+        assert_eq!(run.context_factory_calls[0].cancel_name, "cancel");
+        assert_eq!(run.context_factory_calls[0].factory_name, "WithTimeout");
+        assert_eq!(run.busy_wait_lines, vec![14]);
+        assert_eq!(run.json_marshal_in_loop_lines, vec![21]);
+    }
+
+    #[test]
+    fn collects_concurrency_and_db_signals() {
+        let source = r#"package sample
+
+import (
+    "context"
+    "fmt"
+    "reflect"
+    "time"
+)
+
+func Run(ctx context.Context, db Queryer, items []string, mu MutexLike) {
+    go func() {
+        for {
+            _ = ctx
+        }
+    }()
+
+    for _, item := range items {
+        mu.Lock()
+        time.Sleep(time.Millisecond)
+        _, _ = db.QueryContext(ctx, "SELECT * FROM widgets WHERE name LIKE '%foo%'")
+        _ = fmt.Sprintf("%s", item)
+        _ = reflect.TypeOf(item)
+        _ = make([]byte, 16)
+        mu.Unlock()
+    }
+}
+
+type Queryer interface {
+    QueryContext(context.Context, string) (any, error)
+}
+
+type MutexLike interface {
+    Lock()
+    Unlock()
+}
+"#;
+
+        let parsed = parse_file(Path::new("sample.go"), source).expect("parse should work");
+        let run = parsed
+            .functions
+            .iter()
+            .find(|function| function.fingerprint.name == "Run")
+            .expect("Run should be parsed");
+
+        assert_eq!(run.goroutine_without_shutdown_lines, vec![11]);
+        assert_eq!(run.mutex_lock_in_loop_lines, vec![18]);
+        assert_eq!(run.allocation_in_loop_lines, vec![23]);
+        assert_eq!(run.fmt_in_loop_lines, vec![21]);
+        assert_eq!(run.reflection_in_loop_lines, vec![22]);
+        assert_eq!(run.db_query_calls.len(), 1);
+        assert!(run.db_query_calls[0].in_loop);
+        assert_eq!(
+            run.db_query_calls[0].query_text.as_deref(),
+            Some("SELECT * FROM widgets WHERE name LIKE '%foo%'")
+        );
     }
 
     #[test]

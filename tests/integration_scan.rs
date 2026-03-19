@@ -387,6 +387,53 @@ fn does_not_flag_context_aware_http_calls() {
 }
 
 #[test]
+fn flags_missing_cancel_calls_for_derived_contexts() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "cancel.go",
+        include_str!("./fixtures/context_cancel_slop.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(report.findings.iter().any(|finding| {
+        finding.rule_id == "missing_cancel_call" && finding.function_name.as_deref() == Some("Run")
+    }));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn does_not_flag_derived_contexts_with_cancel_calls() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "cancel.go",
+        include_str!("./fixtures/context_cancel_clean.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|finding| finding.rule_id == "missing_cancel_call")
+    );
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
 fn flags_sleep_polling_patterns() {
     let temp_dir = create_temp_workspace();
     write_fixture(
@@ -431,6 +478,56 @@ fn does_not_flag_sleep_outside_loops() {
             .findings
             .iter()
             .any(|finding| finding.rule_id == "sleep_polling")
+    );
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn flags_busy_waiting_select_defaults() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "wait.go",
+        include_str!("./fixtures/busy_waiting_slop.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|finding| finding.rule_id == "busy_waiting")
+    );
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn does_not_flag_blocking_select_loops_without_default() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "wait.go",
+        include_str!("./fixtures/busy_waiting_clean.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|finding| finding.rule_id == "busy_waiting")
     );
 
     fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
@@ -487,6 +584,54 @@ fn does_not_flag_numeric_plus_equals_in_loops() {
 }
 
 #[test]
+fn flags_repeated_json_marshaling_inside_loops() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "json.go",
+        include_str!("./fixtures/json_marshal_loop.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(report.findings.iter().any(|finding| {
+        finding.rule_id == "repeated_json_marshaling"
+            && finding.function_name.as_deref() == Some("EncodeAll")
+    }));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn does_not_flag_single_json_marshaling_calls() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "json.go",
+        include_str!("./fixtures/json_marshal_clean.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|finding| finding.rule_id == "repeated_json_marshaling")
+    );
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
 fn flags_goroutines_without_coordination() {
     let temp_dir = create_temp_workspace();
     write_fixture(
@@ -532,6 +677,137 @@ fn does_not_flag_goroutines_with_waitgroup_coordination() {
             .iter()
             .any(|finding| finding.rule_id == "goroutine_without_coordination")
     );
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn flags_goroutine_shutdown_and_mutex_contention_patterns() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "concurrency.go",
+        include_str!("./fixtures/concurrency_slop.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "goroutine_without_shutdown_path"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "mutex_in_loop"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "blocking_call_while_locked"));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn does_not_flag_shutdown_and_mutex_patterns_when_signals_are_absent() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "concurrency.go",
+        include_str!("./fixtures/concurrency_clean.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "goroutine_without_shutdown_path"));
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "blocking_call_while_locked"));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn flags_hot_path_allocation_fmt_and_reflection_patterns() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "hot_path.go",
+        include_str!("./fixtures/hot_path_slop.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "allocation_churn_in_loop"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "fmt_hot_path"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "reflection_hot_path"));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn does_not_flag_hot_path_rules_for_one_off_calls() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "hot_path.go",
+        include_str!("./fixtures/hot_path_clean.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "allocation_churn_in_loop"));
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "fmt_hot_path"));
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "reflection_hot_path"));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn flags_looped_db_access_and_query_shape_patterns() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "db.go",
+        include_str!("./fixtures/db_query_slop.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "n_plus_one_query"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "wide_select_query"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "likely_unindexed_query"));
+
+    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
+}
+
+#[test]
+fn does_not_flag_clean_db_access_patterns() {
+    let temp_dir = create_temp_workspace();
+    write_fixture(
+        &temp_dir,
+        "db.go",
+        include_str!("./fixtures/db_query_clean.txt"),
+    );
+
+    let report = scan_repository(&ScanOptions {
+        root: temp_dir.clone(),
+        respect_ignore: true,
+    })
+    .expect("scan should succeed");
+
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "n_plus_one_query"));
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "wide_select_query"));
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "likely_unindexed_query"));
 
     fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
 }

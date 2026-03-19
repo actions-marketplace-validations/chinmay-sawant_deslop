@@ -22,9 +22,34 @@ pub(crate) struct ParsedFunction {
     pub dropped_error_lines: Vec<usize>,
     pub panic_on_error_lines: Vec<usize>,
     pub errorf_calls: Vec<FormattedErrorCall>,
+    pub context_factory_calls: Vec<ContextFactoryCall>,
     pub goroutine_launch_lines: Vec<usize>,
+    pub goroutine_without_shutdown_lines: Vec<usize>,
     pub sleep_in_loop_lines: Vec<usize>,
+    pub busy_wait_lines: Vec<usize>,
+    pub mutex_lock_in_loop_lines: Vec<usize>,
+    pub allocation_in_loop_lines: Vec<usize>,
+    pub fmt_in_loop_lines: Vec<usize>,
+    pub reflection_in_loop_lines: Vec<usize>,
     pub string_concat_in_loop_lines: Vec<usize>,
+    pub json_marshal_in_loop_lines: Vec<usize>,
+    pub db_query_calls: Vec<DbQueryCall>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ContextFactoryCall {
+    pub line: usize,
+    pub cancel_name: String,
+    pub factory_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DbQueryCall {
+    pub line: usize,
+    pub receiver: Option<String>,
+    pub method_name: String,
+    pub query_text: Option<String>,
+    pub in_loop: bool,
 }
 
 #[derive(Debug, Clone)]

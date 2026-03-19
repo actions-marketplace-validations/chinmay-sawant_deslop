@@ -6,7 +6,8 @@ use std::path::Path;
 use anyhow::Result;
 
 pub(crate) use types::{
-    CallSite, DeclaredSymbol, FormattedErrorCall, ImportSpec, ParsedFile, ParsedFunction,
+    CallSite, ContextFactoryCall, DbQueryCall, DeclaredSymbol, FormattedErrorCall, ImportSpec,
+    ParsedFile, ParsedFunction,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

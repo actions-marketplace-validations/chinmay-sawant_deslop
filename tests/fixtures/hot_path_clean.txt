@@ -1,0 +1,11 @@
+package sample
+
+import (
+	"fmt"
+	"reflect"
+)
+
+func Build(item string) string {
+	typeName := reflect.TypeOf(item).String()
+	return fmt.Sprintf("%s:%s", typeName, item)
+}

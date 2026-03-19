@@ -10,7 +10,7 @@ The current implementation is optimized around a fast full-repository pass:
 - skip common generated-code inputs and `vendor/` paths
 - parse Go files with tree-sitter-go
 - fingerprint functions and methods with lightweight structural metrics
-- flag generic naming, overlong naming, weak typing, comment-style slop, weak crypto usage, early error-handling anti-patterns, conservative missing-context cases, looped string concatenation, and raw goroutine coordination gaps
+- flag generic naming, overlong naming, weak typing, comment-style slop, weak crypto usage, early error-handling anti-patterns, conservative missing-context cases, missing derived-context cancellation, looped sleep and select-default busy waiting, looped JSON marshaling, looped string concatenation, looping goroutines without shutdown paths, mutex pressure signals, allocation churn, fmt or reflect hot-path calls, and looped database query-shape issues
 - use a local package index to catch some unresolved repository-local calls
 - benchmark discovery, parse, index, heuristic, and total runtime stages
 

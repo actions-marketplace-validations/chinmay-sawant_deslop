@@ -56,15 +56,30 @@ goslop is a static analyzer for Go repositories that looks for signals commonly 
 ### Context and blocking signals
 
 - `missing_context`: obvious standard-library context-aware calls such as `http.Get`, `http.NewRequest`, `exec.Command`, or `net.Dial` made from functions that do not accept `context.Context`.
+- `missing_cancel_call`: derived contexts created with `context.WithCancel`, `context.WithTimeout`, or `context.WithDeadline` where goslop cannot find a local `cancel()` or `defer cancel()` call.
 - `sleep_polling`: `time.Sleep` inside loops, which often indicates polling or busy-wait style code.
+- `busy_waiting`: `select { default: ... }` inside loops, which often spins instead of blocking on a channel, timer, or context.
 
 ### Performance signals
 
 - `string_concat_in_loop`: repeated string concatenation inside loops when the function is clearly building a string value incrementally.
+- `repeated_json_marshaling`: `encoding/json.Marshal` or `MarshalIndent` inside loops, which can turn iterative paths into repeated allocation and serialization hot spots.
+- `allocation_churn_in_loop`: obvious `make`, `new`, or buffer-construction calls inside loops.
+- `fmt_hot_path`: `fmt` formatting calls such as `Sprintf` inside loops.
+- `reflection_hot_path`: `reflect` package calls inside loops.
 
 ### Concurrency signals
 
 - `goroutine_without_coordination`: raw `go` statements where goslop cannot find an obvious context or WaitGroup-like coordination signal in the same function.
+- `goroutine_without_shutdown_path`: looping goroutine literals that do not show an obvious `ctx.Done()` or done-channel shutdown path.
+- `mutex_in_loop`: repeated `Lock` or `RLock` acquisition inside loops.
+- `blocking_call_while_locked`: potentially blocking calls observed between `Lock` and `Unlock`.
+
+### Data-access signals
+
+- `n_plus_one_query`: database-style query calls issued inside loops.
+- `wide_select_query`: literal `SELECT *` query shapes.
+- `likely_unindexed_query`: query shapes such as leading-wildcard `LIKE` or `ORDER BY` without `LIMIT` that often scale poorly.
 
 ### Local hallucination signals
 
@@ -90,12 +105,12 @@ goslop is a static analyzer for Go repositories that looks for signals commonly 
 ### Implemented so far
 
 - Phase 1 rule pack: naming, weak typing, comment style, weak crypto, early error-handling checks, and local hallucination checks.
-- Phase 2 parser enrichment: context-parameter detection, raw goroutine launch tracking, looped `time.Sleep` detection, and string-concatenation-in-loop tracking.
-- Phase 2 heuristic additions: broader `missing_context`, `sleep_polling`, `string_concat_in_loop`, and the first conservative goroutine-coordination pass.
+- Phase 2 parser enrichment: context-parameter detection, derived-context factory tracking, raw goroutine launch tracking, goroutine shutdown-path tracking, looped `time.Sleep` detection, looped `select default` detection, looped JSON marshal detection, mutex lock-in-loop tracking, allocation tracking, fmt and reflect hot-path tracking, looped database query extraction, and string-concatenation-in-loop tracking.
+- Phase 2 heuristic additions: broader `missing_context`, `missing_cancel_call`, `sleep_polling`, `busy_waiting`, `repeated_json_marshaling`, `string_concat_in_loop`, `goroutine_without_shutdown_path`, `mutex_in_loop`, `blocking_call_while_locked`, `allocation_churn_in_loop`, `fmt_hot_path`, `reflection_hot_path`, `n_plus_one_query`, `wide_select_query`, `likely_unindexed_query`, and the first conservative goroutine-coordination pass.
 
 ### Still pending
 
 - Stronger repo-wide style checks.
-- More reliable concurrency signals.
+- Deeper goroutine lifetime analysis beyond local shutdown-path heuristics.
 - Better context propagation through wrappers and helper functions.
-- Optional deeper semantic analysis for harder cases.
+- Optional deeper semantic analysis for harder cases such as true index awareness, struct layout analysis, and O(n²) detection.

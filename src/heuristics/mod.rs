@@ -48,8 +48,17 @@ pub(crate) fn evaluate_findings(files: &[ParsedFile], index: &RepositoryIndex) -
             findings.extend(comment_style_findings(file, function));
             findings.extend(weak_crypto_findings(file, function));
             findings.extend(missing_context_findings(file, function));
+            findings.extend(missing_cancel_call_findings(file, function));
             findings.extend(sleep_polling_findings(file, function));
+            findings.extend(busy_waiting_findings(file, function));
+            findings.extend(goroutine_shutdown_findings(file, function));
+            findings.extend(mutex_contention_findings(file, function, &file.imports));
+            findings.extend(allocation_churn_findings(file, function));
+            findings.extend(fmt_hot_path_findings(file, function));
+            findings.extend(reflection_hot_path_findings(file, function));
             findings.extend(string_concat_in_loop_findings(file, function));
+            findings.extend(repeated_json_marshaling_findings(file, function));
+            findings.extend(database_query_findings(file, function));
             findings.extend(goroutine_coordination_findings(file, function));
 
             findings.extend(local_hallucination_findings(file, function, index));
@@ -407,6 +416,223 @@ fn sleep_polling_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<F
         .collect()
 }
 
+fn missing_cancel_call_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    function
+        .context_factory_calls
+        .iter()
+        .filter(|factory_call| {
+            !function.calls.iter().any(|call| {
+                call.receiver.is_none() && call.name == factory_call.cancel_name
+            })
+        })
+        .map(|factory_call| Finding {
+            rule_id: "missing_cancel_call".to_string(),
+            severity: Severity::Info,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: factory_call.line,
+            end_line: factory_call.line,
+            message: format!(
+                "function {} creates a derived context without an observed cancel call",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                format!(
+                    "context.{} assigns cancel function {}",
+                    factory_call.factory_name, factory_call.cancel_name
+                ),
+                "no local cancel() or defer cancel() call was observed".to_string(),
+            ],
+        })
+        .collect()
+}
+
+fn busy_waiting_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    function
+        .busy_wait_lines
+        .iter()
+        .map(|line| Finding {
+            rule_id: "busy_waiting".to_string(),
+            severity: Severity::Warning,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: *line,
+            end_line: *line,
+            message: format!(
+                "function {} spins on a select default branch inside a loop",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                "select { default: ... } appears inside a loop".to_string(),
+                "default branches in looped selects often indicate busy-waiting".to_string(),
+            ],
+        })
+        .collect()
+}
+
+fn goroutine_shutdown_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    function
+        .goroutine_without_shutdown_lines
+        .iter()
+        .map(|line| Finding {
+            rule_id: "goroutine_without_shutdown_path".to_string(),
+            severity: Severity::Warning,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: *line,
+            end_line: *line,
+            message: format!(
+                "function {} launches a looping goroutine without an obvious shutdown path",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                "go func literal contains a loop".to_string(),
+                "no ctx.Done() or done-channel shutdown signal was observed in the goroutine body"
+                    .to_string(),
+            ],
+        })
+        .collect()
+}
+
+fn mutex_contention_findings(
+    file: &ParsedFile,
+    function: &ParsedFunction,
+    imports: &[ImportSpec],
+) -> Vec<Finding> {
+    let mut findings = function
+        .mutex_lock_in_loop_lines
+        .iter()
+        .map(|line| Finding {
+            rule_id: "mutex_in_loop".to_string(),
+            severity: Severity::Info,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: *line,
+            end_line: *line,
+            message: format!(
+                "function {} acquires a mutex inside a loop",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                "Lock or RLock appears inside a loop".to_string(),
+                "repeated lock acquisition in iterative paths can create contention".to_string(),
+            ],
+        })
+        .collect::<Vec<_>>();
+
+    let import_aliases = import_alias_lookup(imports);
+    let mut calls = function.calls.clone();
+    calls.sort_by_key(|call| call.line);
+
+    let mut active_locks = BTreeSet::new();
+    let mut blocking_lines = BTreeSet::new();
+
+    for call in calls {
+        if let Some(receiver) = &call.receiver {
+            if matches!(call.name.as_str(), "Lock" | "RLock") {
+                active_locks.insert(receiver.clone());
+                continue;
+            }
+            if matches!(call.name.as_str(), "Unlock" | "RUnlock") {
+                active_locks.remove(receiver);
+                continue;
+            }
+        }
+
+        if !active_locks.is_empty() && is_potentially_blocking_call(&call, &import_aliases) {
+            blocking_lines.insert(call.line);
+        }
+    }
+
+    findings.extend(blocking_lines.into_iter().map(|line| Finding {
+        rule_id: "blocking_call_while_locked".to_string(),
+        severity: Severity::Warning,
+        path: file.path.clone(),
+        function_name: Some(function.fingerprint.name.clone()),
+        start_line: line,
+        end_line: line,
+        message: format!(
+            "function {} performs a potentially blocking call while a mutex appears held",
+            function.fingerprint.name
+        ),
+        evidence: vec![
+            "a blocking or external call was observed between Lock and Unlock".to_string(),
+            "holding a mutex across I/O or sleeps can amplify contention".to_string(),
+        ],
+    }));
+
+    findings
+}
+
+fn allocation_churn_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    function
+        .allocation_in_loop_lines
+        .iter()
+        .map(|line| Finding {
+            rule_id: "allocation_churn_in_loop".to_string(),
+            severity: Severity::Info,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: *line,
+            end_line: *line,
+            message: format!(
+                "function {} allocates new objects inside a loop",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                "make/new or buffer construction appears inside a loop".to_string(),
+                "repeated per-iteration allocation can create avoidable heap churn".to_string(),
+            ],
+        })
+        .collect()
+}
+
+fn fmt_hot_path_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    function
+        .fmt_in_loop_lines
+        .iter()
+        .map(|line| Finding {
+            rule_id: "fmt_hot_path".to_string(),
+            severity: Severity::Info,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: *line,
+            end_line: *line,
+            message: format!(
+                "function {} formats strings with fmt inside a loop",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                "fmt formatting call appears inside a loop".to_string(),
+                "fmt-heavy formatting in iterative paths can be expensive".to_string(),
+            ],
+        })
+        .collect()
+}
+
+fn reflection_hot_path_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    function
+        .reflection_in_loop_lines
+        .iter()
+        .map(|line| Finding {
+            rule_id: "reflection_hot_path".to_string(),
+            severity: Severity::Warning,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: *line,
+            end_line: *line,
+            message: format!(
+                "function {} uses reflection inside a loop",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                "reflect package call appears inside a loop".to_string(),
+                "reflection in hot paths often adds avoidable overhead".to_string(),
+            ],
+        })
+        .collect()
+}
+
 fn string_concat_in_loop_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
     function
         .string_concat_in_loop_lines
@@ -427,6 +653,100 @@ fn string_concat_in_loop_findings(file: &ParsedFile, function: &ParsedFunction) 
             ],
         })
         .collect()
+}
+
+fn repeated_json_marshaling_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    function
+        .json_marshal_in_loop_lines
+        .iter()
+        .map(|line| Finding {
+            rule_id: "repeated_json_marshaling".to_string(),
+            severity: Severity::Info,
+            path: file.path.clone(),
+            function_name: Some(function.fingerprint.name.clone()),
+            start_line: *line,
+            end_line: *line,
+            message: format!(
+                "function {} marshals JSON inside a loop",
+                function.fingerprint.name
+            ),
+            evidence: vec![
+                "encoding/json marshal call appears inside a loop".to_string(),
+                "repeated JSON serialization in iterative paths can become a hot allocation site"
+                    .to_string(),
+            ],
+        })
+        .collect()
+}
+
+fn database_query_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    for query_call in &function.db_query_calls {
+        if query_call.in_loop && query_call.method_name != "Preload" {
+            let receiver = query_call.receiver.as_deref().unwrap_or("<unknown>");
+            findings.push(Finding {
+                rule_id: "n_plus_one_query".to_string(),
+                severity: Severity::Warning,
+                path: file.path.clone(),
+                function_name: Some(function.fingerprint.name.clone()),
+                start_line: query_call.line,
+                end_line: query_call.line,
+                message: format!(
+                    "function {} issues a database-style query inside a loop",
+                    function.fingerprint.name
+                ),
+                evidence: vec![
+                    format!("looped query method: {receiver}.{}", query_call.method_name),
+                    "query execution inside loops often turns into N+1 access patterns"
+                        .to_string(),
+                ],
+            });
+        }
+
+        let Some(query_text) = &query_call.query_text else {
+            continue;
+        };
+        let normalized = query_text.to_ascii_uppercase();
+
+        if normalized.starts_with("SELECT *") {
+            findings.push(Finding {
+                rule_id: "wide_select_query".to_string(),
+                severity: Severity::Info,
+                path: file.path.clone(),
+                function_name: Some(function.fingerprint.name.clone()),
+                start_line: query_call.line,
+                end_line: query_call.line,
+                message: format!(
+                    "function {} issues a wide SELECT * query",
+                    function.fingerprint.name
+                ),
+                evidence: vec![format!("query text: {query_text}")],
+            });
+        }
+
+        if normalized.contains("LIKE '%") || normalized.contains(" ORDER BY ") && !normalized.contains(" LIMIT ") {
+            findings.push(Finding {
+                rule_id: "likely_unindexed_query".to_string(),
+                severity: Severity::Info,
+                path: file.path.clone(),
+                function_name: Some(function.fingerprint.name.clone()),
+                start_line: query_call.line,
+                end_line: query_call.line,
+                message: format!(
+                    "function {} uses a query shape that may bypass effective indexing",
+                    function.fingerprint.name
+                ),
+                evidence: vec![
+                    format!("query text: {query_text}"),
+                    "leading wildcard filters or ORDER BY without LIMIT often scale poorly"
+                        .to_string(),
+                ],
+            });
+        }
+    }
+
+    findings
 }
 
 fn goroutine_coordination_findings(file: &ParsedFile, function: &ParsedFunction) -> Vec<Finding> {
@@ -468,6 +788,50 @@ fn has_obvious_coordination_signal(function: &ParsedFunction) -> bool {
                     )
             })
         })
+}
+
+fn is_potentially_blocking_call(
+    call: &crate::analysis::CallSite,
+    import_aliases: &BTreeMap<String, String>,
+) -> bool {
+    if is_database_query_method(&call.name) {
+        return true;
+    }
+
+    let Some(receiver) = &call.receiver else {
+        return false;
+    };
+    let Some(import_path) = import_aliases.get(receiver) else {
+        return false;
+    };
+
+    matches!(import_path.as_str(), "time") && call.name == "Sleep"
+        || matches!(import_path.as_str(), "net/http")
+            && matches!(call.name.as_str(), "Get" | "Head" | "Post" | "PostForm" | "Do")
+        || matches!(import_path.as_str(), "net")
+            && matches!(call.name.as_str(), "Dial" | "DialTimeout" | "Listen")
+        || matches!(import_path.as_str(), "os")
+            && matches!(call.name.as_str(), "ReadFile" | "WriteFile" | "Open" | "OpenFile" | "Create")
+        || matches!(import_path.as_str(), "io") && call.name == "ReadAll"
+}
+
+fn is_database_query_method(name: &str) -> bool {
+    matches!(
+        name,
+        "Query"
+            | "QueryContext"
+            | "QueryRow"
+            | "QueryRowContext"
+            | "Exec"
+            | "ExecContext"
+            | "Get"
+            | "Select"
+            | "Raw"
+            | "First"
+            | "Find"
+            | "Take"
+            | "Preload"
+    )
 }
 
 fn local_hallucination_findings(
