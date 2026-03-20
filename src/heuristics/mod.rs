@@ -27,8 +27,8 @@ use self::hallucination::local_hallucination_findings;
 use self::naming::{generic_name_finding, overlong_name_finding, weak_typing_finding};
 use self::performance::{
     allocation_churn_findings, database_query_findings, fmt_hot_path_findings,
-    reflection_hot_path_findings, repeated_json_marshaling_findings,
-    string_concat_in_loop_findings,
+    full_dataset_load_findings, reflection_hot_path_findings,
+    repeated_json_marshaling_findings, string_concat_in_loop_findings,
 };
 use self::security::weak_crypto_findings;
 
@@ -64,6 +64,7 @@ pub(crate) fn evaluate_findings(files: &[ParsedFile], index: &RepositoryIndex) -
             findings.extend(string_concat_in_loop_findings(file, function));
             findings.extend(repeated_json_marshaling_findings(file, function));
             findings.extend(database_query_findings(file, function));
+            findings.extend(full_dataset_load_findings(file, function));
             findings.extend(goroutine_coordination_findings(file, function));
             findings.extend(local_hallucination_findings(file, function, index));
         }

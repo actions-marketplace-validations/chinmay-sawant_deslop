@@ -16,9 +16,10 @@ use crate::analysis::{ParsedFile, ParsedFunction};
 
 use self::comments::extract_doc_comment;
 use self::context::{
-    collect_busy_wait_lines, collect_context_factory_calls, collect_goroutine_launch_lines,
-    collect_goroutine_without_shutdown_lines, collect_mutex_lock_in_loop_lines,
-    collect_sleep_in_loop_lines, function_has_context_parameter,
+    collect_busy_wait_lines, collect_context_factory_calls, collect_goroutine_in_loop_lines,
+    collect_goroutine_launch_lines, collect_goroutine_without_shutdown_lines,
+    collect_mutex_lock_in_loop_lines, collect_sleep_in_loop_lines,
+    function_has_context_parameter,
 };
 use self::errors::{
     collect_dropped_error_lines, collect_errorf_calls, collect_panic_on_error_lines,
@@ -106,6 +107,7 @@ fn parse_function_node(
     let errorf_calls = collect_errorf_calls(body_node, source);
     let context_factory_calls = collect_context_factory_calls(body_node, source, imports);
     let goroutine_launch_lines = collect_goroutine_launch_lines(body_node);
+    let goroutine_in_loop_lines = collect_goroutine_in_loop_lines(body_node);
     let goroutine_without_shutdown_lines =
         collect_goroutine_without_shutdown_lines(body_node, source);
     let sleep_in_loop_lines = collect_sleep_in_loop_lines(body_node, source, imports);
@@ -139,6 +141,7 @@ fn parse_function_node(
         errorf_calls,
         context_factory_calls,
         goroutine_launch_lines,
+        goroutine_in_loop_lines,
         goroutine_without_shutdown_lines,
         sleep_in_loop_lines,
         busy_wait_lines,

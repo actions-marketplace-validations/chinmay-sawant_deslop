@@ -249,4 +249,5 @@ func notify(value string) {}
 
     assert_eq!(build.string_concat_in_loop_lines, vec![6]);
     assert_eq!(build.goroutine_launch_lines, vec![7]);
+    assert_eq!(build.goroutine_in_loop_lines, vec![7]);
 }

@@ -231,6 +231,7 @@ mod tests {
                     errorf_calls: Vec::new(),
                     context_factory_calls: Vec::new(),
                     goroutine_launch_lines: Vec::new(),
+                    goroutine_in_loop_lines: Vec::new(),
                     goroutine_without_shutdown_lines: Vec::new(),
                     sleep_in_loop_lines: Vec::new(),
                     busy_wait_lines: Vec::new(),

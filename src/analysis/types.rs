@@ -24,6 +24,7 @@ pub(crate) struct ParsedFunction {
     pub errorf_calls: Vec<FormattedErrorCall>,
     pub context_factory_calls: Vec<ContextFactoryCall>,
     pub goroutine_launch_lines: Vec<usize>,
+    pub goroutine_in_loop_lines: Vec<usize>,
     pub goroutine_without_shutdown_lines: Vec<usize>,
     pub sleep_in_loop_lines: Vec<usize>,
     pub busy_wait_lines: Vec<usize>,
