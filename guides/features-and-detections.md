@@ -52,6 +52,14 @@ goslop is a static analyzer for Go repositories that looks for signals commonly 
 ### Security signals
 
 - `weak_crypto`: direct use of weak standard-library crypto packages such as `crypto/md5`, `crypto/sha1`, `crypto/des`, and `crypto/rc4`.
+- `hardcoded_secret`: secret-like identifiers assigned direct string literals instead of environment or secret-manager lookups.
+- `sql_string_concat`: query execution calls where SQL is constructed dynamically with concatenation or `fmt.Sprintf`.
+
+### Consistency and tag signals
+
+- `mixed_receiver_kinds`: methods on the same receiver type mix pointer and value receivers.
+- `malformed_struct_tag`: struct field tags that do not parse as valid Go tag key/value pairs.
+- `duplicate_struct_tag_key`: struct field tags that repeat the same key more than once.
 
 ### Context and blocking signals
 
@@ -88,6 +96,12 @@ goslop is a static analyzer for Go repositories that looks for signals commonly 
 - `hallucinated_import_call`: package-qualified calls that do not match locally indexed symbols for the imported package.
 - `hallucinated_local_call`: same-package calls to symbols that are not present in the scanned local package context.
 
+### Test-quality signals
+
+- `test_without_assertion_signal`: tests that call production code without any obvious assertion or failure signal.
+- `happy_path_only_test`: tests that assert success expectations without any obvious negative-path signal.
+- `placeholder_test_body`: tests that look skipped, TODO-shaped, or otherwise placeholder-like rather than validating behavior.
+
 ## Detection philosophy
 
 - Findings are heuristics, not compile-time proof.
@@ -109,6 +123,7 @@ goslop is a static analyzer for Go repositories that looks for signals commonly 
 - Phase 1 rule pack: naming, weak typing, comment style, weak crypto, early error-handling checks, and local hallucination checks.
 - Phase 2 parser enrichment: context-parameter detection, derived-context factory tracking, raw goroutine launch tracking, goroutine-in-loop tracking, goroutine shutdown-path tracking, looped `time.Sleep` detection, looped `select default` detection, looped JSON marshal detection, mutex lock-in-loop tracking, allocation tracking, fmt and reflect hot-path tracking, looped database query extraction, and string-concatenation-in-loop tracking.
 - Phase 2 heuristic additions: broader `missing_context`, `missing_cancel_call`, `sleep_polling`, `busy_waiting`, `repeated_json_marshaling`, `string_concat_in_loop`, `goroutine_spawn_in_loop`, `goroutine_without_shutdown_path`, `mutex_in_loop`, `blocking_call_while_locked`, `allocation_churn_in_loop`, `fmt_hot_path`, `reflection_hot_path`, `full_dataset_load`, `n_plus_one_query`, `wide_select_query`, `likely_unindexed_query`, and the first conservative goroutine-coordination pass.
+- Phase 3 heuristic additions: `hardcoded_secret`, `sql_string_concat`, `mixed_receiver_kinds`, `malformed_struct_tag`, `duplicate_struct_tag_key`, `test_without_assertion_signal`, `happy_path_only_test`, and `placeholder_test_body`.
 
 ### Still pending
 
