@@ -20,7 +20,7 @@ The `scan` command defaults to a compact per-function summary and accepts `--det
 
 ### Repository discovery
 
-`src/walker.rs` uses the `ignore` crate to walk the target directory. The current policy:
+`src/scan/walker.rs` uses the `ignore` crate to walk the target directory. The current policy:
 
 - respects `.gitignore` by default
 - works even when the scanned path is not itself a Git repository
@@ -31,19 +31,23 @@ This stage is responsible only for file selection. It does not parse or classify
 
 ### Parse stage
 
-`src/parser.rs` wraps `tree-sitter` and `tree-sitter-go`. For each Go file, it extracts:
+`src/analysis/mod.rs` exposes the language-agnostic analyzer boundary, and `src/analysis/go/parser.rs` wraps `tree-sitter` and `tree-sitter-go`. For each Go file, it extracts:
 
 - package name
 - imports and effective aliases
 - declared symbols such as functions, methods, structs, interfaces, and types
 - per-function call sites
+- context parameter presence for imported `context` aliases
+- raw goroutine launch sites
+- `time.Sleep` calls inside loops
+- string concatenation sites inside loops when the target variable is clearly string-like
 - per-function fingerprints
 
 Parsing remains syntax-tolerant. Files with syntax errors still participate in the report when tree-sitter can recover enough structure.
 
 ### Fingerprint stage
 
-`src/fingerprint.rs` computes lightweight function-level signals:
+`src/analysis/go/fingerprint.rs` computes lightweight function-level signals:
 
 - line span
 - comment and code line counts
@@ -59,31 +63,47 @@ These fingerprints are intended as low-cost primitives for later heuristic and r
 
 ### Symbol index
 
-`src/index.rs` builds a repository-local package index from parsed files. The first version tracks:
+`src/index/mod.rs` builds a repository-local package index from parsed files. The current version tracks:
 
-- package-level functions
+- package-level functions keyed by package name plus repository-relative directory
 - methods grouped by receiver type
 - declared symbols for counting and future evidence output
 - per-package import counts
+- local directory origins for more precise import-call resolution
 
-This index is deliberately lightweight. It is useful for local-context checks, but it is not an authoritative substitute for `go/types`.
+This index is deliberately lightweight. It is useful for local-context checks, but it is not an authoritative substitute for `go/types`. Import-call resolution is now package-plus-directory aware, which reduces ambiguity when multiple local packages share the same package name.
 
 ### Heuristic layer
 
-`src/heuristics.rs` currently implements three rule families:
+`src/heuristics/mod.rs` currently implements several early rule families:
 
 1. `generic_name`
    Flags functions whose names are unusually generic, but only when the function also lacks stronger contextual signals such as specific typing or commentary.
 
-2. `weak_typing`
+2. `overlong_name`
+   Flags unusually long identifiers with many tokens, which is a common low-context AI smell when names describe every step instead of the domain concept.
+
+3. `weak_typing`
    Flags functions whose signatures use `any` or `interface{}`. The severity is reduced when the function includes type assertions that indicate at least some local narrowing.
 
-3. `hallucinated_import_call` and `hallucinated_local_call`
-   Uses the local package index to flag calls that appear to reference symbols not present in the scanned repository context. This is intentionally local-only and should be described as a heuristic, not as proof of broken code.
+4. `dropped_error`, `panic_on_error`, and `error_wrapping_misuse`
+   Uses parser-level evidence to flag blank-identifier error drops, panic-or-fatal handling in `err != nil` branches, and `fmt.Errorf` calls that reference `err` without `%w` wrapping.
+
+5. `comment_style_title_case` and `comment_style_tutorial`
+   Flags doc comments that read like headings or tutorial narration instead of concise Go documentation.
+
+6. `weak_crypto`
+   Flags calls into weak standard-library crypto packages such as `crypto/md5`, `crypto/sha1`, `crypto/des`, and `crypto/rc4`.
+
+7. `missing_context`, `sleep_polling`, `string_concat_in_loop`, and `goroutine_without_coordination`
+   Flags a small conservative set of context-aware standard-library calls made from functions that do not accept `context.Context`, flags `time.Sleep` inside loops as a polling-style signal, flags obvious looped string concatenation, and flags raw goroutine launches when no obvious coordination signal is present.
+
+8. `hallucinated_import_call` and `hallucinated_local_call`
+   Uses the local package index to flag calls that appear to reference symbols not present in the scanned repository context. Import calls are matched against local package-plus-directory candidates derived from import paths, and ambiguous matches are handled conservatively. This is intentionally local-only and should be described as a heuristic, not as proof of broken code.
 
 ### Benchmark layer
 
-`src/benchmark.rs` runs repeated full scans and computes stage statistics:
+`src/benchmark/mod.rs` runs repeated full scans and computes stage statistics:
 
 - minimum
 - maximum
@@ -99,11 +119,13 @@ The scan report currently includes:
 - root path
 - discovered and analyzed file counts
 - function count
-- per-file function summaries by default, or full function fingerprints with `--details`
+- findings by default, or per-file function fingerprints with `--details`
 - structured findings
 - index summary counts
 - parse failures
 - per-stage timing breakdown
+
+The CLI continues to write reports to stdout. The intended workflow for saving results is shell redirection, for example `cargo run -- scan /absolute/path/to/go-repo > results.txt`.
 
 The benchmark report includes:
 
@@ -122,7 +144,7 @@ The benchmark report includes:
 cargo run -- scan /absolute/path/to/go-repo
 ```
 
-This default output lists only function names and line ranges for each file.
+This default output prints the summary plus findings only.
 
 ### Scan with JSON output
 
@@ -135,6 +157,13 @@ cargo run -- scan --json /absolute/path/to/go-repo
 ```bash
 cargo run -- scan --details /absolute/path/to/go-repo
 cargo run -- scan --json --details /absolute/path/to/go-repo
+```
+
+### Write findings to a file
+
+```bash
+cargo run -- scan /absolute/path/to/go-repo > results.txt
+cargo run -- scan --json /absolute/path/to/go-repo > results.txt
 ```
 
 ### Ignore `.gitignore` rules
@@ -160,6 +189,26 @@ cargo run -- bench --warmups 2 --repeats 5 /absolute/path/to/go-repo
 ```bash
 cargo run -- bench --json /absolute/path/to/go-repo
 ```
+
+## Benchmark baseline
+
+Preferred local benchmark target: `gopdfsuit`
+
+Measurement convention:
+
+- command: `cargo run -- bench --warmups 2 --repeats 5 <local-gopdfsuit-path>`
+- scan counts: discovered=89 analyzed=89 functions=702 findings=5 parse_failures=0
+- index summary on the baseline scan: packages=28 symbols=853 imports=448
+- total ms: min=174 max=194 mean=180.80 median=177.00
+- parse ms: min=115 max=132 mean=122.40 median=120.00
+- index ms: min=0 max=0 mean=0.00 median=0.00
+- heuristics ms: min=45 max=50 mean=48.20 median=49.00
+
+Interpretation notes:
+
+- these numbers measure full-repository static analysis latency, not request latency inside the target application
+- use the same warmup and repeat convention when comparing future runs
+- if the target repository changes materially, refresh both the counts and timings together
 
 ## Detailed plan for the next extension phase
 
@@ -225,7 +274,7 @@ Work items:
 ## Limitations
 
 - The symbol index is local and tree-sitter-derived. It cannot replace authoritative Go type checking.
-- Import resolution is currently alias- and package-name-based. It does not resolve module paths through `go.mod`.
+- Import resolution is currently local and suffix-based against repository directories. It does not resolve module paths authoritatively through `go.mod`.
 - Hallucination findings are conservative heuristics for repository-local context, not a proof that a program fails to compile.
 - The benchmark command measures the current Rust pipeline only. It does not run `go test`, `go vet`, or `go/types`.
 - The weak-typing rule currently focuses on signature-level vagueness rather than full dataflow-level type misuse.
@@ -238,7 +287,9 @@ The repository uses small fixture-driven tests under `tests/fixtures/` and integ
 - generated-file filtering
 - syntax-error tolerance
 - heuristic triggering for generic naming and weak typing
+- negative cases for legitimate handler and adapter naming
 - local import-call hallucination detection
+- package-plus-directory import resolution when multiple local packages share the same package name
 - benchmark command behavior on a temporary Go workspace
 
 As the heuristic set expands, each new rule should land with at least one positive fixture and one negative fixture to keep false-positive drift visible.

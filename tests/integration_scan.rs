@@ -1,131 +1,38 @@
+#[path = "integration_scan/benchmarking.rs"]
+mod benchmarking;
+#[path = "integration_scan/concurrency.rs"]
+mod concurrency;
+#[path = "integration_scan/context.rs"]
+mod context;
+#[path = "integration_scan/core.rs"]
+mod core;
+#[path = "integration_scan/data_access.rs"]
+mod data_access;
+#[path = "integration_scan/hallucination.rs"]
+mod hallucination;
+#[path = "integration_scan/naming.rs"]
+mod naming;
+#[path = "integration_scan/performance.rs"]
+mod performance;
+#[path = "integration_scan/security.rs"]
+mod security;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use goslop::{benchmark_repository, scan_repository, BenchmarkOptions, ScanOptions};
+use goslop::{scan_repository, ScanOptions};
 
 #[test]
-fn scans_go_files_and_extracts_fingerprints() {
-    let temp_dir = create_temp_workspace();
-    write_fixture(&temp_dir, "main.go", include_str!("./fixtures/simple.go"));
-
-    let report = scan_repository(&ScanOptions {
-        root: temp_dir.clone(),
-        respect_ignore: true,
-    })
-    .expect("scan should succeed");
-
-    assert_eq!(report.files_discovered, 1);
-    assert_eq!(report.files_analyzed, 1);
-    assert_eq!(report.functions_found, 2);
-    assert!(report.parse_failures.is_empty());
-    assert_eq!(report.files[0].package_name.as_deref(), Some("sample"));
-    assert!(report.findings.is_empty());
-
-    let names = report.files[0]
-        .functions
-        .iter()
-        .map(|function| function.name.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(names, vec!["Add", "Run"]);
-
-    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
-}
-
-#[test]
-fn respects_gitignore() {
-    let temp_dir = create_temp_workspace();
-    write_fixture(&temp_dir, ".gitignore", "ignored.go\n");
-    write_fixture(&temp_dir, "main.go", include_str!("./fixtures/simple.go"));
-    write_fixture(&temp_dir, "ignored.go", include_str!("./fixtures/simple.go"));
-
-    let report = scan_repository(&ScanOptions {
-        root: temp_dir.clone(),
-        respect_ignore: true,
-    })
-    .expect("scan should succeed");
-
-    assert_eq!(report.files_discovered, 1);
-    assert_eq!(report.files_analyzed, 1);
-
-    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
-}
-
-#[test]
-fn skips_generated_files_and_keeps_syntax_error_flag() {
-    let temp_dir = create_temp_workspace();
-    write_fixture(&temp_dir, "generated.go", include_str!("./fixtures/generated.go"));
-    write_fixture(&temp_dir, "broken.go", include_str!("./fixtures/malformed.txt"));
-
-    let report = scan_repository(&ScanOptions {
-        root: temp_dir.clone(),
-        respect_ignore: true,
-    })
-    .expect("scan should succeed");
-
-    assert_eq!(report.files_discovered, 2);
-    assert_eq!(report.files_analyzed, 1);
-    assert_eq!(report.files[0].path.file_name().and_then(|name| name.to_str()), Some("broken.go"));
-    assert!(report.files[0].syntax_error);
-
-    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
-}
-
-#[test]
-fn flags_generic_names_and_weak_typing() {
-    let temp_dir = create_temp_workspace();
-    write_fixture(&temp_dir, "sloppy.go", include_str!("./fixtures/generic_weak.txt"));
-
-    let report = scan_repository(&ScanOptions {
-        root: temp_dir.clone(),
-        respect_ignore: true,
-    })
-    .expect("scan should succeed");
-
-    assert!(report.findings.iter().any(|finding| finding.rule_id == "generic_name"));
-    assert!(report.findings.iter().any(|finding| finding.rule_id == "weak_typing"));
-
-    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
-}
-
-#[test]
-fn flags_hallucinated_import_calls() {
-    let temp_dir = create_temp_workspace();
-    write_fixture(&temp_dir, "main.go", include_str!("./fixtures/hallucinated_import.txt"));
-    write_fixture(&temp_dir, "utils/utils.go", include_str!("./fixtures/utils_package.txt"));
-
-    let report = scan_repository(&ScanOptions {
-        root: temp_dir.clone(),
-        respect_ignore: true,
-    })
-    .expect("scan should succeed");
-
-    assert!(report
-        .findings
-        .iter()
-        .any(|finding| finding.rule_id == "hallucinated_import_call"));
-
-    fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
-}
-
-#[test]
-fn does_not_flag_package_level_function_alias_vars_as_hallucinated() {
+fn flags_error_handling_slop_patterns() {
     let temp_dir = create_temp_workspace();
     write_fixture(
         &temp_dir,
-        "pdf/generator.go",
-        r#"package pdf
-
-import font "example.com/font"
-
-var (
-    IsCustomFont = font.IsCustomFont
-)
-
-func collectAllStandardFontsInTemplate() {
-    IsCustomFont("Helvetica")
-}
-"#,
+        "error_handling.go",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/generic/error_handling_slop.txt"
+        )),
     );
 
     let report = scan_repository(&ScanOptions {
@@ -134,31 +41,34 @@ func collectAllStandardFontsInTemplate() {
     })
     .expect("scan should succeed");
 
-    assert!(!report.findings.iter().any(|finding| {
-        finding.rule_id == "hallucinated_local_call"
-            && finding.function_name.as_deref() == Some("collectAllStandardFontsInTemplate")
-            && finding.start_line == 9
-    }));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "dropped_error"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "panic_on_error"));
+    assert!(report.findings.iter().any(|finding| finding.rule_id == "error_wrapping_misuse"));
 
     fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
 }
 
 #[test]
-fn benchmarks_a_real_scan_path() {
+fn does_not_flag_wrapped_error_handling_as_misuse() {
     let temp_dir = create_temp_workspace();
-    write_fixture(&temp_dir, "main.go", include_str!("./fixtures/simple.go"));
+    write_fixture(
+        &temp_dir,
+        "error_handling.go",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/generic/error_handling_clean.txt"
+        )),
+    );
 
-    let report = benchmark_repository(&BenchmarkOptions {
+    let report = scan_repository(&ScanOptions {
         root: temp_dir.clone(),
-        repeats: 2,
-        warmups: 1,
         respect_ignore: true,
     })
-    .expect("benchmark should succeed");
+    .expect("scan should succeed");
 
-    assert_eq!(report.repeats, 2);
-    assert_eq!(report.warmups, 1);
-    assert_eq!(report.runs.len(), 2);
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "error_wrapping_misuse"));
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "dropped_error"));
+    assert!(!report.findings.iter().any(|finding| finding.rule_id == "panic_on_error"));
 
     fs::remove_dir_all(temp_dir).expect("temp dir cleanup should succeed");
 }

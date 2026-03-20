@@ -1,84 +1,9 @@
-use std::path::Path;
+use tree_sitter::Node;
 
-use anyhow::{Context, Result, anyhow};
-use tree_sitter::{Node, Parser};
-
-use crate::analysis::{CallSite, DeclaredSymbol, ImportSpec, ParsedFile, ParsedFunction};
-use crate::analysis::go::fingerprint::build_function_fingerprint;
+use crate::analysis::{CallSite, DeclaredSymbol, ImportSpec};
 use crate::model::SymbolKind;
 
-pub(super) fn parse_file(path: &Path, source: &str) -> Result<ParsedFile> {
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_go::LANGUAGE.into())
-        .map_err(|error| anyhow!(error.to_string()))
-        .context("failed to configure Go parser")?;
-
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| anyhow!("tree-sitter returned no parse tree"))?;
-
-    let root = tree.root_node();
-    let package_name = find_package_name(root, source);
-    let imports = collect_imports(root, source);
-    let symbols = collect_symbols(root, source);
-    let functions = collect_functions(root, source);
-
-    Ok(ParsedFile {
-        path: path.to_path_buf(),
-        package_name,
-        syntax_error: root.has_error(),
-        byte_size: source.len(),
-        functions,
-        imports,
-        symbols,
-    })
-}
-
-fn collect_functions(root: Node<'_>, source: &str) -> Vec<ParsedFunction> {
-    let mut functions = Vec::new();
-    visit_for_functions(root, source, &mut functions);
-    functions.sort_by(|left, right| {
-        left.fingerprint
-            .start_line
-            .cmp(&right.fingerprint.start_line)
-            .then(left.fingerprint.name.cmp(&right.fingerprint.name))
-    });
-    functions
-}
-
-fn visit_for_functions(node: Node<'_>, source: &str, functions: &mut Vec<ParsedFunction>) {
-    if matches!(node.kind(), "function_declaration" | "method_declaration") {
-        if let Some(parsed_function) = parse_function_node(node, source) {
-            functions.push(parsed_function);
-        }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        visit_for_functions(child, source, functions);
-    }
-}
-
-fn parse_function_node(node: Node<'_>, source: &str) -> Option<ParsedFunction> {
-    let body_node = node.child_by_field_name("body")?;
-    let calls = collect_calls(body_node, source);
-    let type_assertion_count = count_descendants(body_node, "type_assertion_expression");
-    let receiver_type = node
-        .child_by_field_name("receiver")
-        .and_then(|receiver| extract_receiver_type(receiver, source));
-    let fingerprint = build_function_fingerprint(
-        node,
-        source,
-        receiver_type,
-        type_assertion_count,
-        calls.len(),
-    )?;
-
-    Some(ParsedFunction { fingerprint, calls })
-}
-
-fn collect_calls(body_node: Node<'_>, source: &str) -> Vec<CallSite> {
+pub(super) fn collect_calls(body_node: Node<'_>, source: &str) -> Vec<CallSite> {
     let mut calls = Vec::new();
     visit_for_calls(body_node, source, &mut calls);
     calls
@@ -103,7 +28,10 @@ fn visit_for_calls(node: Node<'_>, source: &str, calls: &mut Vec<CallSite>) {
     }
 }
 
-fn extract_call_target(function_node: Node<'_>, source: &str) -> Option<(Option<String>, String)> {
+pub(super) fn extract_call_target(
+    function_node: Node<'_>,
+    source: &str,
+) -> Option<(Option<String>, String)> {
     let text = source.get(function_node.byte_range())?.trim();
     if text.is_empty() {
         return None;
@@ -116,7 +44,7 @@ fn extract_call_target(function_node: Node<'_>, source: &str) -> Option<(Option<
     Some((None, text.to_string()))
 }
 
-fn collect_imports(root: Node<'_>, source: &str) -> Vec<ImportSpec> {
+pub(super) fn collect_imports(root: Node<'_>, source: &str) -> Vec<ImportSpec> {
     let mut imports = Vec::new();
     visit_for_imports(root, source, &mut imports);
     imports.sort_by(|left, right| left.alias.cmp(&right.alias).then(left.path.cmp(&right.path)));
@@ -149,7 +77,7 @@ fn parse_import_spec(node: Node<'_>, source: &str) -> Option<ImportSpec> {
     Some(ImportSpec { alias, path })
 }
 
-fn collect_symbols(root: Node<'_>, source: &str) -> Vec<DeclaredSymbol> {
+pub(super) fn collect_symbols(root: Node<'_>, source: &str) -> Vec<DeclaredSymbol> {
     let mut symbols = Vec::new();
     visit_for_symbols(root, source, &mut symbols);
     symbols.sort_by(|left, right| left.line.cmp(&right.line).then(left.name.cmp(&right.name)));
@@ -173,9 +101,7 @@ fn visit_for_symbols(node: Node<'_>, source: &str, symbols: &mut Vec<DeclaredSym
                 symbols.push(symbol);
             }
         }
-        "var_spec" => {
-            symbols.extend(parse_package_var_symbols(node, source));
-        }
+        "var_spec" => symbols.extend(parse_package_var_symbols(node, source)),
         _ => {}
     }
 
@@ -247,13 +173,13 @@ fn is_package_scope(node: Node<'_>) -> bool {
     false
 }
 
-fn find_var_name_node(node: Node<'_>) -> Option<Node<'_>> {
+pub(super) fn find_var_name_node(node: Node<'_>) -> Option<Node<'_>> {
     node.child_by_field_name("name")
         .or_else(|| first_named_child_of_kind(node, "identifier_list"))
         .or_else(|| first_named_child_of_kind(node, "identifier"))
 }
 
-fn find_var_value_node(node: Node<'_>) -> Option<Node<'_>> {
+pub(super) fn find_var_value_node(node: Node<'_>) -> Option<Node<'_>> {
     node.child_by_field_name("value")
         .or_else(|| first_named_child_of_kind(node, "expression_list"))
         .or_else(|| {
@@ -263,13 +189,13 @@ fn find_var_value_node(node: Node<'_>) -> Option<Node<'_>> {
         })
 }
 
-fn first_named_child_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+pub(super) fn first_named_child_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
         .find(|child| child.kind() == kind)
 }
 
-fn collect_identifiers(node: Node<'_>, source: &str) -> Vec<(String, usize)> {
+pub(super) fn collect_identifiers(node: Node<'_>, source: &str) -> Vec<(String, usize)> {
     if node.kind() == "identifier" {
         return source
             .get(node.byte_range())
@@ -288,7 +214,7 @@ fn collect_identifiers(node: Node<'_>, source: &str) -> Vec<(String, usize)> {
         .collect()
 }
 
-fn collect_expression_nodes(node: Node<'_>) -> Vec<Node<'_>> {
+pub(super) fn collect_expression_nodes(node: Node<'_>) -> Vec<Node<'_>> {
     if node.kind() != "expression_list" {
         return vec![node];
     }
@@ -297,7 +223,7 @@ fn collect_expression_nodes(node: Node<'_>) -> Vec<Node<'_>> {
     node.named_children(&mut cursor).collect()
 }
 
-fn is_callable_var_value(node: Node<'_>) -> bool {
+pub(super) fn is_callable_var_value(node: Node<'_>) -> bool {
     matches!(
         node.kind(),
         "identifier"
@@ -309,7 +235,7 @@ fn is_callable_var_value(node: Node<'_>) -> bool {
     )
 }
 
-fn is_expression_node_kind(kind: &str) -> bool {
+pub(super) fn is_expression_node_kind(kind: &str) -> bool {
     matches!(
         kind,
         "identifier"
@@ -373,7 +299,7 @@ fn parse_type_symbol(node: Node<'_>, source: &str) -> Option<DeclaredSymbol> {
     })
 }
 
-fn find_package_name(root: Node<'_>, source: &str) -> Option<String> {
+pub(super) fn find_package_name(root: Node<'_>, source: &str) -> Option<String> {
     let mut cursor = root.walk();
     for child in root.named_children(&mut cursor) {
         if child.kind() != "package_clause" {
@@ -383,7 +309,9 @@ fn find_package_name(root: Node<'_>, source: &str) -> Option<String> {
         let mut package_cursor = child.walk();
         for package_child in child.named_children(&mut package_cursor) {
             if package_child.kind() == "package_identifier" || package_child.kind() == "identifier" {
-                return source.get(package_child.byte_range()).map(ToOwned::to_owned);
+                return source
+                    .get(package_child.byte_range())
+                    .map(ToOwned::to_owned);
             }
         }
     }
@@ -391,7 +319,7 @@ fn find_package_name(root: Node<'_>, source: &str) -> Option<String> {
     None
 }
 
-fn extract_receiver_type(receiver_node: Node<'_>, source: &str) -> Option<String> {
+pub(super) fn extract_receiver_type(receiver_node: Node<'_>, source: &str) -> Option<String> {
     let text = source.get(receiver_node.byte_range())?;
     let sanitized = text
         .chars()
@@ -403,11 +331,11 @@ fn extract_receiver_type(receiver_node: Node<'_>, source: &str) -> Option<String
         .map(|receiver| receiver.to_string())
 }
 
-fn package_alias_from_import_path(path: &str) -> String {
+pub(super) fn package_alias_from_import_path(path: &str) -> String {
     path.rsplit('/').next().unwrap_or(path).to_string()
 }
 
-fn count_descendants(node: Node<'_>, kind: &str) -> usize {
+pub(super) fn count_descendants(node: Node<'_>, kind: &str) -> usize {
     let mut total = usize::from(node.kind() == kind);
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
@@ -416,37 +344,29 @@ fn count_descendants(node: Node<'_>, kind: &str) -> usize {
     total
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{package_alias_from_import_path, parse_file};
-    use crate::model::SymbolKind;
-    use std::path::Path;
-
-    #[test]
-    fn derives_import_alias_from_path() {
-        assert_eq!(package_alias_from_import_path("github.com/acme/utils"), "utils");
-    }
-
-    #[test]
-    fn collects_package_level_function_alias_vars_as_symbols() {
-        let source = r#"package pdf
-
-import font "example.com/font"
-
-var (
-    IsCustomFont = font.IsCustomFont
-    PlainValue = 42
-)
-
-func collectAllStandardFontsInTemplate() {
-    IsCustomFont("Helvetica")
+pub(super) fn split_assignment(text: &str) -> Option<(&str, &str)> {
+    text.split_once(":=").or_else(|| text.split_once('='))
 }
-"#;
 
-        let parsed = parse_file(Path::new("sample.go"), source).expect("parse should work");
-        assert!(parsed.symbols.iter().any(|symbol| {
-            symbol.name == "IsCustomFont" && matches!(symbol.kind, SymbolKind::Function)
-        }));
-        assert!(!parsed.symbols.iter().any(|symbol| symbol.name == "PlainValue"));
+pub(super) fn is_identifier_name(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|character| character == '_' || character.is_ascii_alphanumeric())
+        && text
+            .chars()
+            .next()
+            .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+}
+
+pub(super) fn first_string_literal(node: Node<'_>, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if matches!(child.kind(), "interpreted_string_literal" | "raw_string_literal") {
+            let literal = source.get(child.byte_range())?;
+            return Some(literal.trim_matches('"').trim_matches('`').to_string());
+        }
     }
+
+    None
 }

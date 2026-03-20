@@ -1,0 +1,7 @@
+package sample
+
+import "encoding/json"
+
+func EncodeOnce(item string) ([]byte, error) {
+	return json.Marshal(item)
+}
