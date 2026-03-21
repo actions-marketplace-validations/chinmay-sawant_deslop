@@ -37,8 +37,12 @@ export type UseCase = {
 
 export type QuickStartItem = {
   label: string
+  channel: string
   description: string
-  command: string
+  snippet: string[]
+  showPrompt?: boolean
+  linkLabel?: string
+  linkHref?: string
 }
 
 export type Principle = {
@@ -57,14 +61,22 @@ export type SiteMetadata = {
     owner: string
     repo: string
     url: string
+    releaseUrl: string
+  }
+  crates: {
+    url: string
   }
 }
 
 export const siteMetadata: SiteMetadata = {
   github: {
     owner: 'chinmay-sawant',
-    repo: 'goslop',
-    url: 'https://github.com/chinmay-sawant/goslop',
+    repo: 'deslop',
+    url: 'https://github.com/chinmay-sawant/deslop',
+    releaseUrl: 'https://github.com/chinmay-sawant/deslop/releases/tag/v0.1.0',
+  },
+  crates: {
+    url: 'https://crates.io/crates/deslop',
   },
 }
 
@@ -72,28 +84,28 @@ export const navigation: NavItem[] = [
   { label: 'Signals', href: '#features' },
   { label: 'Pipeline', href: '#pipeline' },
   { label: 'Use cases', href: '#use-cases' },
-  { label: 'Quick start', href: '#quickstart' },
+  { label: 'Install and run', href: '#install-run' },
   { label: 'Principles', href: '#principles' },
 ]
 
 export const trustPillars = [
   'Explainable findings instead of opaque scoring',
   'Structured output for local workflows and automation',
-  'Complements existing lints and linters instead of replacing them',
+  'Installs through Cargo, prebuilt release binaries, or GitHub Actions',
 ]
 
 export const terminalFlow = [
   {
-    prompt: './deslop scan . > results.txt',
-    output: 'Scan the current repository and write a readable report to disk for a fast review loop.',
+    prompt: 'cargo install deslop',
+    output: 'Install the CLI directly from crates.io when you want the fastest local setup path.',
   },
   {
-    prompt: './deslop scan --json . > results.json',
-    output: 'Emit structured output when the same findings need to flow into scripts, CI, or dashboards.',
+    prompt: 'curl -L https://github.com/chinmay-sawant/deslop/releases/download/v0.1.0/deslop-linux-x86_64.tar.gz -o deslop-linux-x86_64.tar.gz',
+    output: 'Pull the v0.1.0 release asset directly when you want a prebuilt binary instead of a Cargo install.',
   },
   {
-    prompt: './deslop bench --warmups 2 --repeats 5 .',
-    output: 'Measure repeatable discovery, parse, index, heuristic, and total timings against the current repo.',
+    prompt: 'deslop scan . > results.txt',
+    output: 'Run a repository scan locally and keep the report readable enough for fast human review.',
   },
 ]
 
@@ -218,19 +230,47 @@ export const useCases: UseCase[] = [
 
 export const quickStartItems: QuickStartItem[] = [
   {
+    label: 'Install from crates.io',
+    channel: 'Package',
+    description: 'Use Cargo when you want the standard Rust CLI install flow and a clean upgrade path from crates.io.',
+    snippet: ['cargo install deslop'],
+    showPrompt: true,
+    linkLabel: 'View crates.io package',
+    linkHref: siteMetadata.crates.url,
+  },
+  {
+    label: 'Download the v0.1.0 binaries',
+    channel: 'Binary',
+    description: 'Grab the already published Linux, macOS, or Windows release asset when you want a prebuilt binary immediately.',
+    snippet: [
+      'v0.1.0 release assets',
+      'deslop-linux-x86_64.tar.gz',
+      'deslop-macos-arm64.tar.gz',
+      'deslop-macos-x86_64.tar.gz',
+      'deslop-windows-x86_64.zip',
+    ],
+    linkLabel: 'Open GitHub release assets',
+    linkHref: siteMetadata.github.releaseUrl,
+  },
+  {
+    label: 'Run it in GitHub Actions',
+    channel: 'CI',
+    description: 'Use the composite action to download the correct release binary for the runner and execute a scan inside your workflow.',
+    snippet: [
+      '- uses: actions/checkout@v4',
+      '- uses: chinmay-sawant/deslop@v0.1.0',
+      '  with:',
+      '    path: .',
+    ],
+    linkLabel: 'See action usage in the README',
+    linkHref: 'https://github.com/chinmay-sawant/deslop#github-action',
+  },
+  {
     label: 'Scan the current repository',
-    description: 'Run deslop from the repository root and save a readable text report you can review or share.',
-    command: './deslop scan . > results.txt',
-  },
-  {
-    label: 'Export structured output',
-    description: 'Use JSON when the same scan needs to flow into scripts, CI, or internal tooling.',
-    command: './deslop scan --json . > results.json',
-  },
-  {
-    label: 'Measure the pipeline',
-    description: 'Benchmark the full local pass when you want repeatable timings for discovery, parsing, indexing, and heuristics.',
-    command: './deslop bench --warmups 2 --repeats 5 .',
+    channel: 'CLI',
+    description: 'Run deslop from the repository root and save a readable report you can review locally or attach to CI output.',
+    snippet: ['deslop scan . > results.txt'],
+    showPrompt: true,
   },
 ]
 
@@ -274,11 +314,11 @@ export const footerLinks: NavItem[] = [
   { label: 'Back to top', href: '#top' },
   { label: 'Detection families', href: '#features' },
   { label: 'Pipeline', href: '#pipeline' },
-  { label: 'Quick start', href: '#quickstart' },
+  { label: 'Install and run', href: '#install-run' },
 ]
 
 export const footerSources = [
-  'README for command surface and scan modes',
-  'Feature guide for rule families and philosophy',
-  'Implementation guide for pipeline and benchmark details',
+  'README for command surface and GitHub Action usage',
+  'GitHub Releases for the published v0.1.0 binaries',
+  'crates.io for the cargo install path',
 ]

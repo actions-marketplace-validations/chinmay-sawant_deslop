@@ -31,6 +31,7 @@ export function HomePage({ theme, onToggleTheme }: HomePageProps) {
 
         <section id="features" className="section-anchor py-18 sm:py-22 lg:py-28">
           <Container>
+            <></>
             <SectionIntro
               eyebrow="Detection families"
               title="Signals across clarity, reliability, and risk"
@@ -73,12 +74,12 @@ export function HomePage({ theme, onToggleTheme }: HomePageProps) {
           </Container>
         </section>
 
-        <section id="quickstart" className="section-anchor py-18 sm:py-22 lg:py-28">
+        <section id="install-run" className="section-anchor py-18 sm:py-22 lg:py-28">
           <Container>
             <SectionIntro
-              eyebrow="Quick start"
-              title="Run deslop locally in a few commands"
-              description="Scan the current repository, export JSON when you need automation, and benchmark the pipeline against real project code."
+              eyebrow="Install and run"
+              title="Install deslop with Cargo, release binaries, or GitHub Actions"
+              description="Wire deslop into GitHub Actions, install from crates.io, grab a prebuilt binary, or run a scan directly from your repository root."
             />
             <QuickStart />
           </Container>
@@ -104,7 +105,7 @@ export function HomePage({ theme, onToggleTheme }: HomePageProps) {
             </div>
 
             <div className="glass-panel rounded-[2.4rem] p-8 sm:p-10 lg:p-11 xl:p-12">
-              <p className="eyebrow">Benchmark reference</p>
+              <p className="eyebrow">Benchmark reference</p><br/><br/>
               <h3 className="mt-6 max-w-none text-[clamp(3rem,4.2vw,4.35rem)] leading-[0.95] font-bold">Benchmarks grounded in a real local repository.</h3>
               <p className="mt-6 max-w-3xl text-base leading-8 text-[var(--muted)] sm:text-lg">
                 The implementation guide includes a representative Go repository baseline so teams can understand scan cost and coverage at practical project scale.
@@ -112,8 +113,10 @@ export function HomePage({ theme, onToggleTheme }: HomePageProps) {
 
               <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                 {metrics.map((metric) => (
+                  
                   <article key={metric.label} className="grid-panel rounded-[1.7rem] p-6 sm:p-7">
-                    <p className="font-['IBM_Plex_Mono'] text-xs uppercase tracking-[0.2em] text-[var(--muted)]">{metric.label}</p>
+                    
+                    <p className="font-['IBM_Plex_Mono'] text-xs uppercase tracking-[0.2em] text-[var(--muted)]">{metric.label}</p><br/>
                     <p className="mt-4 text-2xl font-bold text-[var(--text)]">{metric.value}</p>
                     <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{metric.note}</p>
                   </article>
@@ -131,16 +134,16 @@ export function HomePage({ theme, onToggleTheme }: HomePageProps) {
                 <div>
                   <span className="eyebrow">Open source from day one</span>
                   <h2 className="mt-6 max-w-4xl text-4xl leading-tight font-bold sm:text-6xl">
-                    Keep the workflow local. Keep the findings readable.
+                    Install it fast. Keep the workflow local. Keep the findings readable.
                   </h2>
                   <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--muted)] sm:text-lg">
-                    deslop ships as a Rust CLI for Go repositories with explainable static signals, readable output, and repeatable benchmarks for local review loops.
+                    deslop ships as a Rust CLI for Go repositories with explainable static signals, readable output, Cargo installs, published binaries, and GitHub Actions support for automation.
                   </p>
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
-                  <a href="#quickstart" className="button-primary">
-                    Run the commands
+                  <a href="#install-run" className="button-primary">
+                    Install and run
                     <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
                   </a>
                   <a href="#features" className="button-secondary">

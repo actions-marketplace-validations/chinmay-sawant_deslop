@@ -17,7 +17,7 @@ function Logo() {
       <span className="flex flex-col leading-none">
         <span className="font-['Space_Grotesk'] text-lg font-bold tracking-[-0.05em] text-[var(--text)]">deslop</span>
         <span className="text-[0.76rem] tracking-[0.02em] text-[var(--muted)]">
-          Static analysis platform
+          Go code review signals
         </span>
       </span>
     </a>
@@ -85,8 +85,8 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
 
             <div className="hidden items-center gap-3 md:flex">
               <ThemeToggleButton theme={theme} onToggleTheme={onToggleTheme} />
-              <a href="#quickstart" className="button-primary">
-                Quick start
+              <a href="#install-run" className="button-primary">
+                Install and run
                 <ArrowUpRightIcon className="h-4 w-4" aria-hidden="true" />
               </a>
             </div>
@@ -118,8 +118,8 @@ export function Header({ theme, onToggleTheme }: HeaderProps) {
                     </a>
                   ))}
                 </div>
-                <a href="#quickstart" className="button-primary mt-3 w-full">
-                  Quick start
+                <a href="#install-run" className="button-primary mt-3 w-full">
+                  Install and run
                 </a>
               </div>
             </Container>
