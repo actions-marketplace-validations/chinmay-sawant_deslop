@@ -13,6 +13,13 @@
       content="deslop, go static analysis, ai generated code, code quality, rust cli, golang tooling"
     />
     <meta name="theme-color" content="#07110d" />
+    <script>
+      const storedTheme = window.localStorage.getItem('deslop-theme')
+      const theme = storedTheme === 'light' ? 'light' : 'dark'
+      document.documentElement.dataset.theme = theme
+      document.documentElement.classList.toggle('light', theme === 'light')
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f3f5f8' : '#07110d')
+    </script>
     <title>deslop | Static analysis for low-context Go code</title>
   </head>
   <body>

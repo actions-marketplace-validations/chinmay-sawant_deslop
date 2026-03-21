@@ -10,7 +10,7 @@ export function QuickStart() {
             <span className="text-sm text-[var(--muted)]">CLI</span>
           </div>
 
-          <h3 className="mt-6 text-[1.95rem] leading-tight font-bold text-white">{item.label}</h3>
+          <h3 className="mt-6 text-[1.95rem] leading-tight font-bold">{item.label}</h3>
           <p className="mt-4 text-base leading-8 text-[var(--muted)]">{item.description}</p>
 
           <div className="grid-panel mt-8 overflow-hidden rounded-[1.6rem] p-5">

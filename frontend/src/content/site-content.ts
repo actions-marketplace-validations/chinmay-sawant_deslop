@@ -52,6 +52,22 @@ export type Metric = {
   note: string
 }
 
+export type SiteMetadata = {
+  github: {
+    owner: string
+    repo: string
+    url: string
+  }
+}
+
+export const siteMetadata: SiteMetadata = {
+  github: {
+    owner: 'chinmay-sawant',
+    repo: 'goslop',
+    url: 'https://github.com/chinmay-sawant/goslop',
+  },
+}
+
 export const navigation: NavItem[] = [
   { label: 'Signals', href: '#features' },
   { label: 'Pipeline', href: '#pipeline' },
@@ -63,7 +79,7 @@ export const navigation: NavItem[] = [
 export const trustPillars = [
   'Explainable findings instead of opaque scoring',
   'Structured output for local workflows and automation',
-  'Current implementation starts with Go repositories',
+  'Compliments existings lints and linters instead of replacing them',
 ]
 
 export const terminalFlow = [

@@ -8,20 +8,23 @@ export function FeatureGrid() {
 
         return (
           <article key={family.title} className="glass-panel rounded-[2rem] p-7 sm:p-8">
-            <div className="flex items-center gap-4">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/3 text-white">
+            <div className="flex items-start gap-4">
+              <span className="icon-badge">
                 <Icon className="h-6 w-6" aria-hidden="true" />
               </span>
+
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[1.95rem] leading-tight font-bold">{family.title}</h3>
+              </div>
             </div>
 
-            <h3 className="mt-8 text-[1.95rem] leading-tight font-bold text-white">{family.title}</h3>
-            <p className="mt-4 text-base leading-8 text-[var(--muted)]">{family.description}</p>
+            <p className="mt-5 text-base leading-8 text-[var(--muted)]">{family.description}</p>
 
-            <ul className="mt-8 flex flex-wrap gap-2.5 border-t border-white/8 pt-6">
+            <ul className="mt-8 flex flex-wrap gap-2.5 border-t border-[var(--border)] pt-6">
               {family.rules.map((rule) => (
                 <li
                   key={rule}
-                  className="rounded-full border border-white/8 bg-white/3 px-3.5 py-1.5 text-[0.78rem] text-[#e9e9e9]"
+                  className="surface-chip px-3.5 py-1.5 text-[0.78rem]"
                 >
                   {rule}
                 </li>

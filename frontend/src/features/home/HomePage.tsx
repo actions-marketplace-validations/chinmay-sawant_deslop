@@ -5,9 +5,9 @@ import {
   footerSources,
   metrics,
   principles,
-  trustPillars,
   useCases,
 } from '../../content/site-content'
+import type { Theme } from '../../shared/lib/useTheme'
 import { Container } from '../../shared/ui/Container'
 import { SectionIntro } from '../../shared/ui/SectionIntro'
 import { FeatureGrid } from './components/FeatureGrid'
@@ -16,27 +16,20 @@ import { HeroSection } from './components/HeroSection'
 import { PipelineTabs } from './components/PipelineTabs'
 import { QuickStart } from './components/QuickStart'
 
-export function HomePage() {
+type HomePageProps = {
+  theme: Theme
+  onToggleTheme: () => void
+}
+
+export function HomePage({ theme, onToggleTheme }: HomePageProps) {
   return (
     <div className="relative">
-      <Header />
+      <Header theme={theme} onToggleTheme={onToggleTheme} />
 
       <main>
         <HeroSection />
 
-        <section className="section-anchor pb-12 sm:pb-16" aria-label="Trusted product facts">
-          <Container>
-            <div className="grid gap-4 md:grid-cols-3">
-                {trustPillars.map((pillar) => (
-                  <div key={pillar} className="glass-panel rounded-[1.8rem] px-6 py-6 text-base leading-8 text-[#ededed]">
-                    {pillar}
-                  </div>
-                ))}
-            </div>
-          </Container>
-        </section>
-
-        <section id="features" className="section-anchor py-20 sm:py-24 lg:py-32">
+        <section id="features" className="section-anchor py-18 sm:py-22 lg:py-28">
           <Container>
             <SectionIntro
               eyebrow="Detection families"
@@ -47,7 +40,7 @@ export function HomePage() {
           </Container>
         </section>
 
-        <section id="pipeline" className="section-anchor py-20 sm:py-24 lg:py-32">
+        <section id="pipeline" className="section-anchor py-18 sm:py-22 lg:py-28">
           <Container>
             <SectionIntro
               eyebrow="Pipeline"
@@ -58,7 +51,7 @@ export function HomePage() {
           </Container>
         </section>
 
-        <section id="use-cases" className="section-anchor py-20 sm:py-24 lg:py-32">
+        <section id="use-cases" className="section-anchor py-18 sm:py-22 lg:py-28">
           <Container>
             <SectionIntro
               eyebrow="Use cases"
@@ -69,9 +62,9 @@ export function HomePage() {
             <div className="mt-14 grid gap-5 lg:grid-cols-2">
               {useCases.map((useCase) => (
                 <article key={useCase.title} className="glass-panel rounded-[2rem] p-7 sm:p-8">
-                  <h3 className="text-[2rem] leading-tight font-bold text-white">{useCase.title}</h3>
+                  <h3 className="text-[2rem] leading-tight font-bold">{useCase.title}</h3>
                   <p className="mt-4 text-base leading-8 text-[var(--muted)]">{useCase.description}</p>
-                  <div className="mt-8 rounded-[1.5rem] border border-white/12 bg-white/3 px-5 py-5 text-sm leading-7 text-[#ececec] sm:text-base">
+                  <div className="surface-inset mt-8 rounded-[1.5rem] px-5 py-5 text-sm leading-7 sm:text-base">
                     {useCase.outcome}
                   </div>
                 </article>
@@ -80,7 +73,7 @@ export function HomePage() {
           </Container>
         </section>
 
-        <section id="quickstart" className="section-anchor py-20 sm:py-24 lg:py-32">
+        <section id="quickstart" className="section-anchor py-18 sm:py-22 lg:py-28">
           <Container>
             <SectionIntro
               eyebrow="Quick start"
@@ -91,7 +84,7 @@ export function HomePage() {
           </Container>
         </section>
 
-        <section id="principles" className="section-anchor py-20 sm:py-24 lg:py-32">
+        <section id="principles" className="section-anchor py-18 sm:py-22 lg:py-28">
           <Container className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
             <div>
               <SectionIntro
@@ -103,7 +96,7 @@ export function HomePage() {
               <div className="mt-10 space-y-5">
                 {principles.map((principle) => (
                   <article key={principle.title} className="glass-panel rounded-[1.8rem] p-7">
-                    <h3 className="text-[1.85rem] leading-tight font-bold text-white">{principle.title}</h3>
+                    <h3 className="text-[1.85rem] leading-tight font-bold">{principle.title}</h3>
                     <p className="mt-4 text-sm leading-8 text-[var(--muted)] sm:text-base">{principle.description}</p>
                   </article>
                 ))}
@@ -112,7 +105,7 @@ export function HomePage() {
 
             <div className="glass-panel rounded-[2.2rem] p-7 sm:p-9 lg:p-10">
               <p className="eyebrow">Benchmark reference</p>
-              <h3 className="mt-6 max-w-3xl text-4xl leading-tight font-bold text-white sm:text-[3rem]">Enough proof to feel real, without making the page feel crowded.</h3>
+              <h3 className="mt-6 max-w-3xl text-4xl leading-tight font-bold sm:text-[3rem]">Enough proof to feel real, without making the page feel crowded.</h3>
               <p className="mt-5 max-w-2xl text-base leading-8 text-[var(--muted)] sm:text-lg">
                 The implementation guide documents a preferred baseline against a realistic local Go repository. The numbers belong here as evidence,
                 not as a universal promise for every codebase shape.
@@ -122,15 +115,15 @@ export function HomePage() {
                 {metrics.map((metric) => (
                   <article key={metric.label} className="grid-panel rounded-[1.7rem] p-6">
                     <p className="font-['IBM_Plex_Mono'] text-xs uppercase tracking-[0.2em] text-[var(--muted)]">{metric.label}</p>
-                    <p className="mt-4 text-2xl font-bold text-white">{metric.value}</p>
+                    <p className="mt-4 text-2xl font-bold text-[var(--text)]">{metric.value}</p>
                     <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{metric.note}</p>
                   </article>
                 ))}
               </div>
 
-              <div className="mt-10 rounded-[1.8rem] border border-white/12 bg-white/3 p-6 sm:p-7">
-                <p className="font-['IBM_Plex_Mono'] text-xs uppercase tracking-[0.2em] text-white">What this page will not claim</p>
-                <p className="mt-4 max-w-2xl text-sm leading-8 text-[#ededed] sm:text-base">
+              <div className="surface-inset mt-10 rounded-[1.8rem] p-6 sm:p-7">
+                <p className="font-['IBM_Plex_Mono'] text-xs uppercase tracking-[0.2em] text-[var(--text)]">What this page will not claim</p>
+                <p className="mt-4 max-w-2xl text-sm leading-8 sm:text-base">
                   No authoritative Go type checking. No interprocedural proof. No guarantee that every flagged issue is wrong. The value is in the speed,
                   coverage, and clarity of the evidence you get back.
                 </p>
@@ -139,13 +132,13 @@ export function HomePage() {
           </Container>
         </section>
 
-        <section className="pb-24 pt-8 sm:pb-28 lg:pb-36">
+        <section className="pb-20 pt-8 sm:pb-24 lg:pb-28">
           <Container>
             <div className="glass-panel rounded-[2.4rem] p-8 sm:p-12 lg:p-14">
               <div className="grid gap-10 lg:grid-cols-[1fr_auto] lg:items-end">
                 <div>
                   <span className="eyebrow">Open source from day one</span>
-                  <h2 className="mt-6 max-w-4xl text-4xl leading-tight font-bold text-white sm:text-6xl">
+                  <h2 className="mt-6 max-w-4xl text-4xl leading-tight font-bold sm:text-6xl">
                     Keep the workflow local. Keep the findings readable. Keep the homepage restrained.
                   </h2>
                   <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--muted)] sm:text-lg">
@@ -169,10 +162,10 @@ export function HomePage() {
         </section>
       </main>
 
-      <footer className="border-t border-white/8 pb-12 pt-10 sm:pb-14">
+      <footer className="border-t border-[var(--border)] pb-12 pt-10 sm:pb-14">
         <Container className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div>
-            <p className="font-['Space_Grotesk'] text-2xl font-bold tracking-[-0.05em] text-white">deslop</p>
+            <p className="font-['Space_Grotesk'] text-2xl font-bold tracking-[-0.05em] text-[var(--text)]">deslop</p>
             <p className="mt-4 max-w-2xl text-sm leading-8 text-[var(--muted)] sm:text-base">
               A static-analysis product story for low-context code, anchored to a current implementation that targets Go repositories and keeps the evidence readable.
             </p>
@@ -189,8 +182,8 @@ export function HomePage() {
           <div className="grid gap-4 sm:grid-cols-3">
             {footerSources.map((source) => (
               <div key={source} className="grid-panel rounded-[1.6rem] p-5">
-                <p className="font-['IBM_Plex_Mono'] text-xs uppercase tracking-[0.18em] text-white">Source</p>
-                <p className="mt-3 text-sm leading-7 text-[#e5e5e5]">{source}</p>
+                <p className="font-['IBM_Plex_Mono'] text-xs uppercase tracking-[0.18em] text-[var(--text)]">Source</p>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-strong)]">{source}</p>
               </div>
             ))}
           </div>
