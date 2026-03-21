@@ -29,6 +29,9 @@ enum Command {
         details: bool,
         #[arg(long)]
         no_ignore: bool,
+        /// Exit 0 even when findings are present (useful for informational runs).
+        #[arg(long)]
+        no_fail: bool,
     },
     Bench {
         path: PathBuf,
@@ -52,6 +55,7 @@ fn main() -> Result<()> {
             json,
             details,
             no_ignore,
+            no_fail,
         } => {
             let report = scan_repository(&ScanOptions {
                 root: path,
@@ -62,6 +66,17 @@ fn main() -> Result<()> {
                 println!("{}", format_scan_report_json(&report, details)?);
             } else {
                 print!("{}", format_scan_report(&report, details));
+            }
+
+            if !no_fail {
+                let finding_count = report
+                    .findings
+                    .iter()
+                    .filter(|f| details || f.rule_id != "full_dataset_load")
+                    .count();
+                if finding_count > 0 {
+                    std::process::exit(1);
+                }
             }
         }
         Command::Bench {

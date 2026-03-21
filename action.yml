@@ -27,6 +27,10 @@ inputs:
     description: Scan without respecting .gitignore.
     required: false
     default: 'false'
+  fail-on-findings:
+    description: Exit with a non-zero status code when scan findings are present. Applies only to the scan command.
+    required: false
+    default: 'true'
   repeats:
     description: Benchmark repeat count. Applies only to the bench command.
     required: false
@@ -69,6 +73,7 @@ runs:
         DESLOP_JSON: ${{ inputs.json }}
         DESLOP_DETAILS: ${{ inputs.details }}
         DESLOP_NO_IGNORE: ${{ inputs.no-ignore }}
+        DESLOP_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
         DESLOP_REPEATS: ${{ inputs.repeats }}
         DESLOP_WARMUPS: ${{ inputs.warmups }}
       run: |
@@ -89,6 +94,10 @@ runs:
 
             if [[ "$DESLOP_NO_IGNORE" == 'true' ]]; then
               args+=(--no-ignore)
+            fi
+
+            if [[ "$DESLOP_FAIL_ON_FINDINGS" != 'true' ]]; then
+              args+=(--no-fail)
             fi
 
             args+=("$DESLOP_PATH")
@@ -122,6 +131,7 @@ runs:
         DESLOP_JSON: ${{ inputs.json }}
         DESLOP_DETAILS: ${{ inputs.details }}
         DESLOP_NO_IGNORE: ${{ inputs.no-ignore }}
+        DESLOP_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
         DESLOP_REPEATS: ${{ inputs.repeats }}
         DESLOP_WARMUPS: ${{ inputs.warmups }}
       run: |
@@ -142,6 +152,10 @@ runs:
 
             if ($env:DESLOP_NO_IGNORE -eq 'true') {
               $args += '--no-ignore'
+            }
+
+            if ($env:DESLOP_FAIL_ON_FINDINGS -ne 'true') {
+              $args += '--no-fail'
             }
 
             $args += $env:DESLOP_PATH
