@@ -1,4 +1,4 @@
-name: deslop
+name: run-deslop
 description: Scan Go repositories for likely AI-generated slop patterns.
 author: chinmay-sawant
 
