@@ -9,10 +9,10 @@ type SectionIntroProps = {
 
 export function SectionIntro({ eyebrow, title, description, className }: SectionIntroProps) {
   return (
-    <div className={cn('max-w-3xl', className)}>
+    <div className={cn('max-w-4xl', className)}>
       <span className="eyebrow">{eyebrow}</span>
-      <h2 className="mt-5 text-3xl leading-tight font-bold sm:text-4xl">{title}</h2>
-      <p className="mt-4 max-w-2xl text-base text-[var(--muted)] sm:text-lg">{description}</p>
+      <h2 className="mt-6 text-4xl leading-[1.02] font-bold sm:text-5xl lg:text-[3.65rem]">{title}</h2>
+      <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--muted)] sm:text-lg">{description}</p>
     </div>
   )
 }

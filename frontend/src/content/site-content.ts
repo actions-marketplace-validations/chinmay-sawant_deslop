@@ -1,11 +1,8 @@
 import type { ComponentType, SVGProps } from 'react'
 import {
-  BeakerIcon,
   BoltIcon,
-  BugAntIcon,
   CircleStackIcon,
   CodeBracketSquareIcon,
-  CommandLineIcon,
   CpuChipIcon,
   ExclamationTriangleIcon,
   ShieldCheckIcon,
@@ -64,12 +61,9 @@ export const navigation: NavItem[] = [
 ]
 
 export const trustPillars = [
-  '30+ explainable heuristics across quality, security, performance, and tests',
-  '.gitignore-aware repo discovery with generated-file and vendor filtering',
-  'Compact text reports by default with JSON output for automation',
-  'Syntax-tolerant parsing so partially broken trees still surface signal',
-  'Repository-local symbol indexing for stronger local call checks',
-  'Repeatable benchmarking built into the CLI surface',
+  'Explainable findings instead of opaque scoring',
+  'Structured output for local workflows and automation',
+  'Current implementation starts with Go repositories',
 ]
 
 export const terminalFlow = [
@@ -87,94 +81,71 @@ export const terminalFlow = [
   },
 ]
 
-export const signalChips = [
-  'missing_context',
-  'hardcoded_secret',
-  'goroutine_spawn_in_loop',
-  'sql_string_concat',
-  'test_without_assertion_signal',
-  'hallucinated_local_call',
-]
-
 export const detectionFamilies: DetectionFamily[] = [
   {
-    title: 'Naming and abstraction',
+    title: 'Code clarity',
     description:
-      'Spot generic or overdescriptive functions when the surrounding context stays weak or non-specific.',
-    rules: ['generic_name', 'overlong_name', 'weak_typing'],
+      'Surface vague naming, overdescribed helpers, and weakly signaled interfaces before they spread through a codebase.',
+    rules: ['Generic naming', 'Overlong identifiers', 'Weak typing'],
     icon: CodeBracketSquareIcon,
   },
   {
-    title: 'Error handling',
+    title: 'Reliability',
     description:
-      'Catch dropped errors, panic-first branches, and wrapping mistakes that make failures harder to reason about.',
-    rules: ['dropped_error', 'panic_on_error', 'error_wrapping_misuse'],
+      'Catch the failure-handling shortcuts that make code look complete while hiding operational risk.',
+    rules: ['Dropped errors', 'Panic-first branches', 'Weak wrapping'],
     icon: ExclamationTriangleIcon,
   },
   {
     title: 'Security',
     description:
-      'Flag weak crypto usage, direct secret literals, and string-built SQL patterns that deserve extra scrutiny.',
-    rules: ['weak_crypto', 'hardcoded_secret', 'sql_string_concat'],
+      'Highlight secrets, weak crypto choices, and query-construction patterns that deserve a closer review.',
+    rules: ['Secret literals', 'Weak crypto', 'Unsafe query strings'],
     icon: ShieldCheckIcon,
   },
   {
-    title: 'Context and blocking',
+    title: 'Coordination',
     description:
-      'Highlight missing context propagation, forgotten cancel paths, and blocking patterns that often age badly.',
-    rules: ['missing_context', 'missing_cancel_call', 'busy_waiting'],
+      'Find shutdown, cancellation, and blocking decisions that often look harmless until systems are under load.',
+    rules: ['Missing context', 'Missing cancel', 'Busy waiting'],
     icon: BoltIcon,
   },
   {
     title: 'Performance',
     description:
-      'Surface repeated allocations, hot-path formatting, and full-payload reads before they turn into ambient latency.',
-    rules: ['allocation_churn_in_loop', 'fmt_hot_path', 'full_dataset_load'],
+      'Flag repeated work inside loops, full-payload reads, and formatting-heavy hot paths before they harden into defaults.',
+    rules: ['Allocation churn', 'Formatting hot paths', 'Full data loads'],
     icon: CpuChipIcon,
   },
   {
-    title: 'Concurrency',
+    title: 'Tests and local context',
     description:
-      'Find coordination gaps in goroutines, lock pressure in loops, and shutdown paths that are missing or unclear.',
-    rules: ['goroutine_without_coordination', 'goroutine_spawn_in_loop', 'mutex_in_loop'],
+      'Differentiate between tests that only gesture at safety and local code paths that appear to reference symbols the project cannot resolve.',
+    rules: ['Placeholder tests', 'Happy-path-only tests', 'Local call misses'],
     icon: CircleStackIcon,
-  },
-  {
-    title: 'Data access',
-    description:
-      'Call out query shapes that often correlate with N+1 patterns, wide reads, or indexing blind spots.',
-    rules: ['n_plus_one_query', 'wide_select_query', 'likely_unindexed_query'],
-    icon: CommandLineIcon,
-  },
-  {
-    title: 'Tests and local hallucination',
-    description:
-      'Differentiate between tests that only gesture at safety and code that calls symbols the local repo cannot resolve.',
-    rules: ['test_without_assertion_signal', 'placeholder_test_body', 'hallucinated_local_call'],
-    icon: BeakerIcon,
   },
 ]
 
 export const pipelineStages: PipelineStage[] = [
   {
     name: 'Discover',
-    summary: 'Walk the target repository fast, with normal developer ignore rules respected by default.',
+    summary: 'Walk the repository quickly, with normal developer ignore rules respected by default.',
     detail:
-      'deslop starts with file selection only. It skips vendor paths, filters non-Go inputs, and keeps discovery logic independent from analysis so later stages stay composable.',
+      'deslop starts with file selection only. It keeps discovery independent from later analysis so the pipeline stays composable and cheap to run.',
     bullets: [
       '.gitignore-aware by default',
-      'Skips vendor and common generated Go files',
+      'Skips vendor and common generated files in the current implementation',
       'Keeps discovery separate from parsing',
     ],
   },
   {
     name: 'Parse',
-    summary: 'Use tree-sitter-go to extract syntax, symbols, imports, call sites, and function fingerprints.',
+    summary: 'Parse source structure, declared symbols, and call patterns without forcing a heavy semantic stack.',
     detail:
-      'The parser remains syntax tolerant. Even if a file is imperfect, deslop still tries to recover enough structure to keep signal flowing into the report.',
+      'The current implementation uses tree-sitter-go and remains syntax tolerant. Even if a file is imperfect, deslop still tries to recover enough structure to keep signal flowing into the report.',
     bullets: [
       'Package names, imports, and declared symbols',
-      'Call sites, loop markers, goroutine launches, and context clues',
+      'Call sites, loop markers, and context clues',
       'Function-level fingerprints built for later heuristics',
     ],
   },
@@ -204,19 +175,19 @@ export const pipelineStages: PipelineStage[] = [
 
 export const useCases: UseCase[] = [
   {
-    title: 'Review AI-assisted pull requests',
+    title: 'Review AI-assisted changes',
     description:
-      'Use deslop as a second pass when code looks plausible but lacks the domain texture, shutdown discipline, or test intent you would expect from a mature change.',
+      'Use deslop as a second pass when code looks plausible but lacks the domain texture, failure handling, or test intent you would expect from a mature change.',
     outcome: 'Shortens review time by surfacing the suspicious shapes first.',
   },
   {
-    title: 'Harden platform and infra code',
+    title: 'Run focused quality sweeps',
     description:
-      'Context propagation, goroutine coordination, and loop-driven locking mistakes show up early when teams move quickly across handlers, jobs, and background workers.',
-    outcome: 'Pushes risk discovery earlier than post-incident analysis.',
+      'Use the tool as a narrow scanner for brittle error handling, thin tests, and structure that feels generated rather than grounded in the problem.',
+    outcome: 'Gives teams a fast quality pass without a heavy platform rollout.',
   },
   {
-    title: 'Run targeted security sweeps',
+    title: 'Add lightweight security review',
     description:
       'Weak crypto, secret literals, and string-built query paths are called out as explainable findings that can feed human security review.',
     outcome: 'Adds a narrow security lens without pretending to be a full audit suite.',
@@ -267,19 +238,19 @@ export const principles: Principle[] = [
 
 export const metrics: Metric[] = [
   {
-    label: 'Mean benchmark time',
+    label: 'Documented baseline',
     value: '180.80 ms',
-    note: 'Preferred local baseline documented for gopdfsuit.',
+    note: 'Preferred local benchmark documented against a realistic Go repository.',
+  },
+  {
+    label: 'Current implementation',
+    value: 'Go repositories first',
+    note: 'The public site stays broader, but the shipped analyzer currently targets Go.',
   },
   {
     label: 'Benchmark repository scale',
     value: '89 files / 702 functions',
     note: 'Measured as a full-repository static analysis pass.',
-  },
-  {
-    label: 'CLI surface',
-    value: 'scan, scan --json, bench',
-    note: 'Compact output by default, details available when needed.',
   },
 ]
 
@@ -291,25 +262,7 @@ export const footerLinks: NavItem[] = [
 ]
 
 export const footerSources = [
-  'README command surface and scan modes',
-  'Features and detections guide for rule families and philosophy',
-  'Implementation guide for pipeline stages and benchmark baseline',
-]
-
-export const noteCards = [
-  {
-    title: 'Explainable output',
-    description: 'Readable findings with rule IDs and evidence help reviewers decide what matters.',
-    icon: BugAntIcon,
-  },
-  {
-    title: 'Go-specific scope',
-    description: 'The current implementation is tuned for Go repositories rather than generic multi-language analysis.',
-    icon: CodeBracketSquareIcon,
-  },
-  {
-    title: 'Open extension path',
-    description: 'The architecture is already split into stages so later analysis can reuse stable intermediate results.',
-    icon: CircleStackIcon,
-  },
+  'README for command surface and scan modes',
+  'Feature guide for rule families and philosophy',
+  'Implementation guide for pipeline and benchmark details',
 ]
