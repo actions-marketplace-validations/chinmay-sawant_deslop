@@ -1,4 +1,4 @@
-goslop scan root: /home/chinmay/ChinmayPersonalProjects/gopdfsuit
+deslop scan root: /home/chinmay/ChinmayPersonalProjects/gopdfsuit
 Go files discovered: 90
 Go files analyzed: 90
 Functions fingerprinted: 717
