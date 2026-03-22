@@ -58,6 +58,20 @@ fn evaluate_rust_file_findings(file: &ParsedFile) -> Vec<Finding> {
             "dbg_macro_leftover",
             "leaves dbg! in non-test Rust code",
         ));
+        findings.extend(non_test_macro_findings(
+            file,
+            function,
+            "panic!",
+            "panic_macro_leftover",
+            "leaves panic! in non-test Rust code",
+        ));
+        findings.extend(non_test_macro_findings(
+            file,
+            function,
+            "unreachable!",
+            "unreachable_macro_leftover",
+            "leaves unreachable! in non-test Rust code",
+        ));
         findings.extend(non_test_call_findings(
             file,
             function,

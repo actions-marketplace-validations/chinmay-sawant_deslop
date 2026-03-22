@@ -11,6 +11,14 @@ pub fn leaves_dbg() {
     dbg!(value);
 }
 
+pub fn leaves_panic() {
+    panic!("boom");
+}
+
+pub fn leaves_unreachable() {
+    unreachable!("not implemented");
+}
+
 pub fn leaves_unwrap() -> String {
     let value = Some("ready".to_string());
     value.unwrap()
@@ -38,6 +46,8 @@ mod tests {
         let value = Some("ready");
         todo!();
         dbg!(value);
+        panic!("boom");
+        unreachable!("not implemented");
         value.unwrap();
         value.expect("missing value");
     }

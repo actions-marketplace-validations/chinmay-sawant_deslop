@@ -87,6 +87,8 @@ These fingerprints are intended as low-cost primitives for later heuristic and r
 - per-package import counts
 - local directory origins for more precise import-call resolution
 
+The index is now language-scoped as well, so mixed Go and Rust repositories do not merge same-directory symbols into one local package entry.
+
 This index is deliberately lightweight. It is useful for local-context checks, but it is not an authoritative substitute for `go/types`. Import-call resolution is now package-plus-directory aware, which reduces ambiguity when multiple local packages share the same package name.
 
 ### Heuristic layer
@@ -117,7 +119,7 @@ This index is deliberately lightweight. It is useful for local-context checks, b
 8. `hallucinated_import_call` and `hallucinated_local_call`
    Uses the local package index to flag calls that appear to reference symbols not present in the scanned repository context. Import calls are matched against local package-plus-directory candidates derived from import paths, and ambiguous matches are handled conservatively. This is intentionally local-only and should be described as a heuristic, not as proof of broken code.
 
-9. `todo_macro_leftover`, `unimplemented_macro_leftover`, `dbg_macro_leftover`, `unwrap_in_non_test_code`, `expect_in_non_test_code`, and `unsafe_without_safety_comment`
+9. `todo_macro_leftover`, `unimplemented_macro_leftover`, `dbg_macro_leftover`, `panic_macro_leftover`, `unreachable_macro_leftover`, `unwrap_in_non_test_code`, `expect_in_non_test_code`, and `unsafe_without_safety_comment`
    The Rust backend uses parser-level call, test-classification, and unsafe-comment evidence to flag obvious leftover macros, `.unwrap()` and `.expect(...)` in non-test Rust code, and `unsafe` usage that lacks a nearby `SAFETY:` comment.
 
 ### Benchmark layer

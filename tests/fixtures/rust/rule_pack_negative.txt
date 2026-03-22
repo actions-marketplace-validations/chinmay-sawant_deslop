@@ -22,6 +22,8 @@ mod tests {
         todo!();
         unimplemented!();
         dbg!(value);
+        panic!("boom");
+        unreachable!("not implemented");
         value.unwrap();
         value.expect("missing value");
     }

@@ -46,6 +46,8 @@ The first implementation should favor a small set of high-signal rules rather th
 	- `todo_macro_leftover`: flags `todo!()` in non-test Rust code
 	- `unimplemented_macro_leftover`: flags `unimplemented!()` in non-test Rust code
 	- `dbg_macro_leftover`: flags `dbg!()` in non-test Rust code
+	- `panic_macro_leftover`: flags `panic!()` in non-test Rust code when it appears as an obvious leftover or control-flow stub
+	- `unreachable_macro_leftover`: flags `unreachable!()` in non-test Rust code when it appears as an obvious leftover or control-flow stub
 	- `unwrap_in_non_test_code`: flags `.unwrap()` in non-test Rust code
 	- `expect_in_non_test_code`: flags `.expect(...)` in non-test Rust code
 	- `unsafe_without_safety_comment`: flags `unsafe` blocks or `unsafe fn` where no nearby `SAFETY:` comment policy is satisfied

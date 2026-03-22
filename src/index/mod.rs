@@ -1,17 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::analysis::{DeclaredSymbol, ParsedFile};
+use crate::analysis::{DeclaredSymbol, Language, ParsedFile};
 use crate::model::{IndexSummary, SymbolKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct PackageKey {
+    language: Language,
     package_name: String,
     directory: PathBuf,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PackageIndex {
+    pub language: Language,
     pub package_name: String,
     pub directory: PathBuf,
     pub functions: BTreeSet<String>,
@@ -34,8 +36,14 @@ pub(crate) struct RepositoryIndex {
 }
 
 impl RepositoryIndex {
-    pub fn package_for_file(&self, file_path: &Path, package_name: &str) -> Option<&PackageIndex> {
+    pub fn package_for_file(
+        &self,
+        language: Language,
+        file_path: &Path,
+        package_name: &str,
+    ) -> Option<&PackageIndex> {
         let key = PackageKey {
+            language,
             package_name: package_name.to_string(),
             directory: package_directory(&self.root, file_path),
         };
@@ -43,11 +51,14 @@ impl RepositoryIndex {
         self.packages.get(&key)
     }
 
-    pub fn resolve_import_path(&self, import_path: &str) -> ImportResolution<'_> {
+    pub fn resolve_import_path(&self, language: Language, import_path: &str) -> ImportResolution<'_> {
         let mut candidates = self
             .packages
             .values()
-            .filter(|package| import_path_matches_directory(import_path, &package.directory))
+            .filter(|package| {
+                package.language == language
+                    && import_path_matches_directory(import_path, &package.directory)
+            })
             .collect::<Vec<_>>();
 
         match candidates.len() {
@@ -108,10 +119,12 @@ pub(crate) fn build_repository_index(root: &Path, files: &[ParsedFile]) -> Repos
             .unwrap_or_else(|| "unknown".to_string());
         let directory = package_directory(root, &file.path);
         let key = PackageKey {
+            language: file.language,
             package_name: package_name.clone(),
             directory: directory.clone(),
         };
         let package_entry = packages.entry(key).or_insert_with(|| PackageIndex {
+            language: file.language,
             package_name,
             directory,
             functions: BTreeSet::new(),
@@ -196,9 +209,14 @@ mod tests {
     use crate::analysis::{DeclaredSymbol, Language, ParsedFile, ParsedFunction};
     use crate::model::{FunctionFingerprint, SymbolKind};
 
-    fn sample_file(path: &str, package_name: &str, function_names: &[&str]) -> ParsedFile {
+    fn sample_file(
+        language: Language,
+        path: &str,
+        package_name: &str,
+        function_names: &[&str],
+    ) -> ParsedFile {
         ParsedFile {
-            language: Language::Go,
+            language,
             path: PathBuf::from(path),
             package_name: Some(package_name.to_string()),
             is_test_file: false,
@@ -269,12 +287,12 @@ mod tests {
 
     #[test]
     fn builds_package_lookup() {
-        let files = vec![sample_file("/repo/utils/sample.go", "utils", &["Trim"])];
+        let files = vec![sample_file(Language::Go, "/repo/utils/sample.go", "utils", &["Trim"])];
 
         let index = build_repository_index(Path::new("/repo"), &files);
         assert!(
             index
-                .package_for_file(Path::new("/repo/utils/sample.go"), "utils")
+                .package_for_file(Language::Go, Path::new("/repo/utils/sample.go"), "utils")
                 .is_some_and(|package| package.has_function("Trim"))
         );
     }
@@ -282,21 +300,21 @@ mod tests {
     #[test]
     fn keeps_same_package_names_separate_by_directory() {
         let files = vec![
-            sample_file("/repo/pkg/render/main.go", "render", &["Normalize"]),
-            sample_file("/repo/internal/render/main.go", "render", &["Sanitize"]),
+            sample_file(Language::Go, "/repo/pkg/render/main.go", "render", &["Normalize"]),
+            sample_file(Language::Go, "/repo/internal/render/main.go", "render", &["Sanitize"]),
         ];
 
         let index = build_repository_index(Path::new("/repo"), &files);
 
         assert!(
             index
-                .package_for_file(Path::new("/repo/pkg/render/main.go"), "render")
+                .package_for_file(Language::Go, Path::new("/repo/pkg/render/main.go"), "render")
                 .is_some_and(|package| package.has_function("Normalize")
                     && !package.has_function("Sanitize"))
         );
         assert!(
             index
-                .package_for_file(Path::new("/repo/internal/render/main.go"), "render")
+                .package_for_file(Language::Go, Path::new("/repo/internal/render/main.go"), "render")
                 .is_some_and(|package| package.has_function("Sanitize")
                     && !package.has_function("Normalize"))
         );
@@ -305,19 +323,45 @@ mod tests {
     #[test]
     fn resolves_imports_by_directory_suffix_not_package_name_only() {
         let files = vec![
-            sample_file("/repo/pkg/render/main.go", "render", &["Normalize"]),
-            sample_file("/repo/internal/render/main.go", "render", &["Sanitize"]),
+            sample_file(Language::Go, "/repo/pkg/render/main.go", "render", &["Normalize"]),
+            sample_file(Language::Go, "/repo/internal/render/main.go", "render", &["Sanitize"]),
         ];
 
         let index = build_repository_index(Path::new("/repo"), &files);
 
-        match index.resolve_import_path("github.com/acme/project/pkg/render") {
+        match index.resolve_import_path(Language::Go, "github.com/acme/project/pkg/render") {
             ImportResolution::Resolved(package) => {
                 assert_eq!(package.directory, PathBuf::from("pkg/render"));
                 assert!(package.has_function("Normalize"));
                 assert!(!package.has_function("Sanitize"));
             }
             other => panic!("expected resolved import, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn keeps_mixed_language_packages_separate_in_the_same_directory() {
+        let files = vec![
+            sample_file(Language::Go, "/repo/pkg/render/main.go", "render", &["Normalize"]),
+            sample_file(Language::Rust, "/repo/pkg/render/lib.rs", "render", &["NormalizeRust"]),
+        ];
+
+        let index = build_repository_index(Path::new("/repo"), &files);
+
+        assert!(index
+            .package_for_file(Language::Go, Path::new("/repo/pkg/render/main.go"), "render")
+            .is_some_and(|package| package.has_function("Normalize") && !package.has_function("NormalizeRust")));
+        assert!(index
+            .package_for_file(Language::Rust, Path::new("/repo/pkg/render/lib.rs"), "render")
+            .is_some_and(|package| package.has_function("NormalizeRust") && !package.has_function("Normalize")));
+
+        match index.resolve_import_path(Language::Go, "github.com/acme/project/pkg/render") {
+            ImportResolution::Resolved(package) => {
+                assert_eq!(package.language, Language::Go);
+                assert!(package.has_function("Normalize"));
+                assert!(!package.has_function("NormalizeRust"));
+            }
+            other => panic!("expected go package resolution, got {other:?}"),
         }
     }
 }

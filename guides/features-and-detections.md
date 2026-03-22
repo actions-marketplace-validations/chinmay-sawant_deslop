@@ -60,6 +60,8 @@ deslop is a static analyzer for Go and Rust repositories that looks for signals 
 - `todo_macro_leftover`: `todo!()` left in non-test Rust code.
 - `unimplemented_macro_leftover`: `unimplemented!()` left in non-test Rust code.
 - `dbg_macro_leftover`: `dbg!()` left in non-test Rust code.
+- `panic_macro_leftover`: `panic!()` left in non-test Rust code.
+- `unreachable_macro_leftover`: `unreachable!()` left in non-test Rust code.
 - `unwrap_in_non_test_code`: `.unwrap()` used in non-test Rust code.
 - `expect_in_non_test_code`: `.expect(...)` used in non-test Rust code.
 - `unsafe_without_safety_comment`: `unsafe fn` or `unsafe` block without a nearby `SAFETY:` comment. The current nearby-comment policy accepts a `SAFETY:` comment on the same line or within the previous two lines.
@@ -123,7 +125,7 @@ deslop is a static analyzer for Go and Rust repositories that looks for signals 
 - No authoritative Go or Rust type checking yet.
 - No interprocedural context propagation.
 - No proof of goroutine leaks, N+1 queries, or runtime performance regressions.
-- Package-method and local-symbol checks are repository-local only.
+- Package-method and local-symbol checks are repository-local and now language-scoped for mixed-language repositories.
 - No Rust trait resolution, cargo workspace modeling, or macro expansion yet.
 
 ## Phase status
