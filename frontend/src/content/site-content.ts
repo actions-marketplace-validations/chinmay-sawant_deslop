@@ -318,7 +318,7 @@ export const footerLinks: NavItem[] = [
 ]
 
 export const footerSources = [
-  'README for command surface and GitHub Action usage',
-  'GitHub Releases for the published v0.1.0 binaries',
-  'crates.io for the cargo install path',
+  // 'README for command surface and GitHub Action usage',
+  // 'GitHub Releases for the published v0.1.0 binaries',
+  // 'crates.io for the cargo install path',
 ]
