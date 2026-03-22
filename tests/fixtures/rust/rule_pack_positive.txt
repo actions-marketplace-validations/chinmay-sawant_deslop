@@ -1,0 +1,44 @@
+pub fn leaves_todo() {
+    todo!();
+}
+
+pub fn leaves_unimplemented() {
+    unimplemented!();
+}
+
+pub fn leaves_dbg() {
+    let value = 41;
+    dbg!(value);
+}
+
+pub fn leaves_unwrap() -> String {
+    let value = Some("ready".to_string());
+    value.unwrap()
+}
+
+pub fn leaves_expect() -> String {
+    let value = Some("ready".to_string());
+    value.expect("missing value")
+}
+
+pub unsafe fn missing_safety_comment() {
+    dangerous();
+}
+
+pub fn missing_block_safety_comment() {
+    unsafe {
+        dangerous();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn suppressed_in_test_code() {
+        let value = Some("ready");
+        todo!();
+        dbg!(value);
+        value.unwrap();
+        value.expect("missing value");
+    }
+}

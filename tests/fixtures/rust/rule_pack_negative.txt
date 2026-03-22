@@ -1,0 +1,28 @@
+pub fn clean_function() {
+    println!("clean");
+}
+
+/// SAFETY: the caller guarantees the pointer is valid for the duration of the call.
+pub unsafe fn documented_unsafe_fn() {
+    dangerous();
+}
+
+pub fn documented_unsafe_block() {
+    // SAFETY: the FFI contract was validated before entering the block.
+    unsafe {
+        dangerous();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_only_macros_are_suppressed() {
+        let value = Some("ready");
+        todo!();
+        unimplemented!();
+        dbg!(value);
+        value.unwrap();
+        value.expect("missing value");
+    }
+}

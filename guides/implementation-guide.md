@@ -2,7 +2,7 @@
 
 ## Overview
 
-deslop is structured as a multi-stage Rust analysis pipeline for Go repositories. The current implementation focuses on fast full-repository ingestion, lightweight structural fingerprints, a repository-local symbol index, first-pass heuristic findings, and repeatable benchmark measurements.
+deslop is structured as a multi-stage Rust analysis pipeline for Go and Rust repositories. The current implementation focuses on fast full-repository ingestion, lightweight structural fingerprints, a repository-local symbol index, explainable heuristic findings, and repeatable benchmark measurements.
 
 The code is intentionally split so later phases such as copypasta detection, control-flow analysis, taint tracking, and auto-fix generation can consume stable intermediate results instead of reparsing source files or embedding analysis logic inside the CLI.
 
@@ -24,14 +24,16 @@ The `scan` command defaults to a compact per-function summary and accepts `--det
 
 - respects `.gitignore` by default
 - works even when the scanned path is not itself a Git repository
-- skips non-Go files
+- skips unsupported files and keeps language detection extension-driven through the registered backends
 - skips `vendor/` paths
 
 This stage is responsible only for file selection. It does not parse or classify file contents.
 
 ### Parse stage
 
-`src/analysis/mod.rs` exposes the language-agnostic analyzer boundary, and `src/analysis/go/parser.rs` wraps `tree-sitter` and `tree-sitter-go`. For each Go file, it extracts:
+`src/analysis/mod.rs` exposes the language-agnostic analyzer boundary. `src/analysis/go/parser.rs` wraps `tree-sitter` and `tree-sitter-go`, and `src/analysis/rust/parser.rs` wraps `tree-sitter-rust` for the current Rust backend.
+
+For each Go file, the parser extracts:
 
 - package name
 - imports and effective aliases
@@ -44,6 +46,20 @@ This stage is responsible only for file selection. It does not parse or classify
 - per-function fingerprints
 
 Parsing remains syntax-tolerant. Files with syntax errors still participate in the report when tree-sitter can recover enough structure.
+
+For Rust files, the current parser extracts:
+
+- a conservative module name derived from the file path
+- `use` declarations and conservative aliases
+- declared symbols such as functions, methods, structs, traits, enums, and type aliases
+- per-function call sites, including macro invocations such as `dbg!` and `todo!`
+- test-only function classification derived from `tests/`, `#[test]`, and `#[cfg(test)]`
+- package-level and local named string literals
+- unsafe usage lines plus nearby `SAFETY:` comment lines
+- syntax error state
+- lightweight function fingerprints and call counts
+
+Rust still avoids type-aware semantic modeling, macro expansion, and cargo-graph reasoning. The parser stays syntax-oriented so the scan pipeline can handle `.rs` files without special casing while keeping the evidence model reviewable.
 
 ### Fingerprint stage
 
@@ -75,7 +91,7 @@ This index is deliberately lightweight. It is useful for local-context checks, b
 
 ### Heuristic layer
 
-`src/heuristics/mod.rs` currently implements several early rule families:
+`src/heuristics/mod.rs` currently implements several shared and Go-specific rule families, and `src/analysis/rust/mod.rs` hosts the first Rust-specific rule pack:
 
 1. `generic_name`
    Flags functions whose names are unusually generic, but only when the function also lacks stronger contextual signals such as specific typing or commentary.
@@ -101,6 +117,9 @@ This index is deliberately lightweight. It is useful for local-context checks, b
 8. `hallucinated_import_call` and `hallucinated_local_call`
    Uses the local package index to flag calls that appear to reference symbols not present in the scanned repository context. Import calls are matched against local package-plus-directory candidates derived from import paths, and ambiguous matches are handled conservatively. This is intentionally local-only and should be described as a heuristic, not as proof of broken code.
 
+9. `todo_macro_leftover`, `unimplemented_macro_leftover`, `dbg_macro_leftover`, `unwrap_in_non_test_code`, `expect_in_non_test_code`, and `unsafe_without_safety_comment`
+   The Rust backend uses parser-level call, test-classification, and unsafe-comment evidence to flag obvious leftover macros, `.unwrap()` and `.expect(...)` in non-test Rust code, and `unsafe` usage that lacks a nearby `SAFETY:` comment.
+
 ### Benchmark layer
 
 `src/benchmark/mod.rs` runs repeated full scans and computes stage statistics:
@@ -110,7 +129,7 @@ This index is deliberately lightweight. It is useful for local-context checks, b
 - mean
 - median
 
-The benchmark command is meant to be run against a real local Go repository so the sub-2s target can be measured on realistic input rather than fixture-scale samples.
+The benchmark command is meant to be run against a real local repository so the sub-2s target can be measured on realistic input rather than fixture-scale samples.
 
 ## Output model
 
@@ -125,7 +144,7 @@ The scan report currently includes:
 - parse failures
 - per-stage timing breakdown
 
-The CLI continues to write reports to stdout. The intended workflow for saving results is shell redirection, for example `cargo run -- scan /absolute/path/to/go-repo > results.txt`.
+The CLI continues to write reports to stdout. The intended workflow for saving results is shell redirection, for example `cargo run -- scan /absolute/path/to/repo > results.txt`.
 
 The benchmark report includes:
 
@@ -141,53 +160,55 @@ The benchmark report includes:
 ### Scan a repository
 
 ```bash
-cargo run -- scan /absolute/path/to/go-repo
+cargo run -- scan /absolute/path/to/repo
 ```
+
+The scan command auto-detects supported languages from the files present under the target root, so the same command works for Go-only repositories, Rust-only repositories, and mixed repositories.
 
 This default output prints the summary plus findings only.
 
 ### Scan with JSON output
 
 ```bash
-cargo run -- scan --json /absolute/path/to/go-repo
+cargo run -- scan --json /absolute/path/to/repo
 ```
 
 ### Include full per-function details
 
 ```bash
-cargo run -- scan --details /absolute/path/to/go-repo
-cargo run -- scan --json --details /absolute/path/to/go-repo
+cargo run -- scan --details /absolute/path/to/repo
+cargo run -- scan --json --details /absolute/path/to/repo
 ```
 
 ### Write findings to a file
 
 ```bash
-cargo run -- scan /absolute/path/to/go-repo > results.txt
-cargo run -- scan --json /absolute/path/to/go-repo > results.txt
+cargo run -- scan /absolute/path/to/repo > results.txt
+cargo run -- scan --json /absolute/path/to/repo > results.txt
 ```
 
 ### Ignore `.gitignore` rules
 
 ```bash
-cargo run -- scan --no-ignore /absolute/path/to/go-repo
+cargo run -- scan --no-ignore /absolute/path/to/repo
 ```
 
 ### Benchmark a repository
 
 ```bash
-cargo run -- bench /absolute/path/to/go-repo
+cargo run -- bench /absolute/path/to/repo
 ```
 
 ### Benchmark with explicit run counts
 
 ```bash
-cargo run -- bench --warmups 2 --repeats 5 /absolute/path/to/go-repo
+cargo run -- bench --warmups 2 --repeats 5 /absolute/path/to/repo
 ```
 
 ### Benchmark with JSON output
 
 ```bash
-cargo run -- bench --json /absolute/path/to/go-repo
+cargo run -- bench --json /absolute/path/to/repo
 ```
 
 ## Benchmark baseline

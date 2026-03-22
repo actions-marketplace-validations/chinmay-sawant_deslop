@@ -2,7 +2,7 @@
 
 ## Purpose
 
-deslop is a static analyzer for Go repositories that looks for signals commonly associated with low-context or AI-assisted code. The goal is not to prove correctness. The goal is to surface suspicious patterns quickly, explain why they were flagged, and let a reviewer decide whether the code is actually a problem.
+deslop is a static analyzer for Go and Rust repositories that looks for signals commonly associated with low-context or AI-assisted code. The goal is not to prove correctness. The goal is to surface suspicious patterns quickly, explain why they were flagged, and let a reviewer decide whether the code is actually a problem.
 
 ## Current feature set
 
@@ -17,7 +17,7 @@ deslop is a static analyzer for Go repositories that looks for signals commonly 
 
 - Walks a repository with `.gitignore` awareness by default.
 - Skips `vendor/` and generated Go files.
-- Parses Go syntax with `tree-sitter-go`.
+- Parses Go syntax with `tree-sitter-go` and Rust syntax with `tree-sitter-rust`.
 - Continues scanning even when some files contain syntax errors.
 
 ### Analysis pipeline
@@ -54,6 +54,15 @@ deslop is a static analyzer for Go repositories that looks for signals commonly 
 - `weak_crypto`: direct use of weak standard-library crypto packages such as `crypto/md5`, `crypto/sha1`, `crypto/des`, and `crypto/rc4`.
 - `hardcoded_secret`: secret-like identifiers assigned direct string literals instead of environment or secret-manager lookups.
 - `sql_string_concat`: query execution calls where SQL is constructed dynamically with concatenation or `fmt.Sprintf`.
+
+### Rust-specific signals
+
+- `todo_macro_leftover`: `todo!()` left in non-test Rust code.
+- `unimplemented_macro_leftover`: `unimplemented!()` left in non-test Rust code.
+- `dbg_macro_leftover`: `dbg!()` left in non-test Rust code.
+- `unwrap_in_non_test_code`: `.unwrap()` used in non-test Rust code.
+- `expect_in_non_test_code`: `.expect(...)` used in non-test Rust code.
+- `unsafe_without_safety_comment`: `unsafe fn` or `unsafe` block without a nearby `SAFETY:` comment. The current nearby-comment policy accepts a `SAFETY:` comment on the same line or within the previous two lines.
 
 ### Consistency and tag signals
 
@@ -111,10 +120,11 @@ deslop is a static analyzer for Go repositories that looks for signals commonly 
 
 ## Current limitations
 
-- No authoritative Go type checking yet.
+- No authoritative Go or Rust type checking yet.
 - No interprocedural context propagation.
 - No proof of goroutine leaks, N+1 queries, or runtime performance regressions.
 - Package-method and local-symbol checks are repository-local only.
+- No Rust trait resolution, cargo workspace modeling, or macro expansion yet.
 
 ## Phase status
 
