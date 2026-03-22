@@ -57,7 +57,7 @@ impl RepositoryIndex {
             .values()
             .filter(|package| {
                 package.language == language
-                    && import_path_matches_directory(import_path, &package.directory)
+                    && import_matches_dir(import_path, &package.directory)
             })
             .collect::<Vec<_>>();
 
@@ -68,7 +68,7 @@ impl RepositoryIndex {
         }
     }
 
-    pub fn resolve_rust_module_import(
+    pub fn resolve_rust_import(
         &self,
         current_file_path: &Path,
         import_path: &str,
@@ -79,7 +79,7 @@ impl RepositoryIndex {
             return ImportResolution::Unresolved;
         };
         let Some(target_segments) =
-            normalize_rust_import_path(import_path, &current_module_segments)
+            normalize_rust_path(import_path, &current_module_segments)
         else {
             return ImportResolution::Unresolved;
         };
@@ -87,8 +87,8 @@ impl RepositoryIndex {
             return ImportResolution::Unresolved;
         };
 
-        let file_module_directory = rust_file_module_directory(&crate_root, &target_segments);
-        let mod_module_directory = rust_mod_module_directory(&crate_root, &target_segments);
+        let file_module_directory = rust_file_mod_dir(&crate_root, &target_segments);
+        let mod_module_directory = rust_mod_mod_dir(&crate_root, &target_segments);
         let mut candidates = self
             .packages
             .values()
@@ -219,7 +219,7 @@ fn package_directory(root: &Path, file_path: &Path) -> PathBuf {
         .unwrap_or_else(|_| parent.to_path_buf())
 }
 
-fn import_path_matches_directory(import_path: &str, directory: &Path) -> bool {
+fn import_matches_dir(import_path: &str, directory: &Path) -> bool {
     let directory_segments = directory
         .components()
         .map(|component| component.as_os_str().to_string_lossy().into_owned())
@@ -277,7 +277,7 @@ fn rust_module_context(root: &Path, file_path: &Path) -> Option<(PathBuf, Vec<St
     Some((PathBuf::from(crate_root), module_segments))
 }
 
-fn normalize_rust_import_path(
+fn normalize_rust_path(
     import_path: &str,
     current_module_segments: &[String],
 ) -> Option<Vec<String>> {
@@ -312,7 +312,7 @@ fn normalize_rust_import_path(
     }
 }
 
-fn rust_file_module_directory(crate_root: &Path, target_segments: &[String]) -> PathBuf {
+fn rust_file_mod_dir(crate_root: &Path, target_segments: &[String]) -> PathBuf {
     if target_segments.len() <= 1 {
         return crate_root.to_path_buf();
     }
@@ -324,7 +324,7 @@ fn rust_file_module_directory(crate_root: &Path, target_segments: &[String]) -> 
     directory
 }
 
-fn rust_mod_module_directory(crate_root: &Path, target_segments: &[String]) -> PathBuf {
+fn rust_mod_mod_dir(crate_root: &Path, target_segments: &[String]) -> PathBuf {
     let mut directory = crate_root.to_path_buf();
     for segment in target_segments {
         directory.push(segment);
@@ -370,7 +370,7 @@ mod tests {
                         comment_to_code_ratio: 0.0,
                         complexity_score: 1,
                         symmetry_score: 0.0,
-                        boilerplate_err_guards: 0,
+                        err_guards: 0,
                         contains_any_type: false,
                         contains_empty_interface: false,
                         type_assertion_count: 0,
@@ -430,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_same_package_names_separate_by_directory() {
+    fn test_pkg_separation() {
         let files = vec![
             sample_file(Language::Go, "/repo/pkg/render/main.go", "render", &["Normalize"]),
             sample_file(Language::Go, "/repo/internal/render/main.go", "render", &["Sanitize"]),
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_imports_by_directory_suffix_not_package_name_only() {
+    fn test_import_suffix() {
         let files = vec![
             sample_file(Language::Go, "/repo/pkg/render/main.go", "render", &["Normalize"]),
             sample_file(Language::Go, "/repo/internal/render/main.go", "render", &["Sanitize"]),
@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn keeps_mixed_language_packages_separate_in_the_same_directory() {
+    fn test_mixed_lang() {
         let files = vec![
             sample_file(Language::Go, "/repo/pkg/render/main.go", "render", &["Normalize"]),
             sample_file(Language::Rust, "/repo/pkg/render/lib.rs", "render", &["NormalizeRust"]),
@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_rust_module_imports_for_crate_self_and_super_paths() {
+    fn test_rust_imports() {
         let files = vec![
             sample_file(Language::Rust, "/repo/src/config/mod.rs", "config", &["shared"]),
             sample_file(Language::Rust, "/repo/src/config/render.rs", "render", &["normalize"]),
@@ -507,7 +507,7 @@ mod tests {
 
         let index = build_repository_index(Path::new("/repo"), &files);
 
-        match index.resolve_rust_module_import(
+        match index.resolve_rust_import(
             Path::new("/repo/src/lib.rs"),
             "crate::config::render",
         ) {
@@ -518,7 +518,7 @@ mod tests {
             other => panic!("expected crate import to resolve, got {other:?}"),
         }
 
-        match index.resolve_rust_module_import(
+        match index.resolve_rust_import(
             Path::new("/repo/src/config/mod.rs"),
             "self::render",
         ) {
@@ -529,7 +529,7 @@ mod tests {
             other => panic!("expected self import to resolve, got {other:?}"),
         }
 
-        match index.resolve_rust_module_import(
+        match index.resolve_rust_import(
             Path::new("/repo/src/config/sub/helpers.rs"),
             "super::super::render",
         ) {
